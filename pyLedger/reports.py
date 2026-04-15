@@ -10,7 +10,7 @@ import datetime
 from dataclasses import dataclass
 from decimal import Decimal
 
-from pyLedger.models import Amount, Journal
+from PyLedger.models import Amount, Journal
 
 
 @dataclass

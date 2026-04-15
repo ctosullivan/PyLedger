@@ -12,7 +12,7 @@ import os
 import re
 from decimal import Decimal, InvalidOperation
 
-from pyLedger.models import Amount, Journal, Posting, Transaction
+from PyLedger.models import Amount, Journal, Posting, Transaction
 
 
 class ParseError(ValueError):
@@ -259,7 +259,10 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
 
     Uses a line-by-line state machine. A transaction block begins on any
     non-indented line whose first token is a simple date and ends on the first
-    subsequent blank line, or at EOF.
+    subsequent blank line, or at EOF. Posting lines are conventionally indented
+    with 2+ spaces or a tab, but indentation is not strictly required; any line
+    inside an open transaction block that is not a blank line, comment, new
+    transaction header, or recognised directive is treated as a posting.
 
     Accepted date formats: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD, and year-omitted
     forms such as M/DD or MM-DD. Leading zeros on month and day are optional.
@@ -319,25 +322,13 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
         if stripped.startswith(";") or stripped.startswith("#"):
             continue
 
-        # --- Posting line (2+ leading spaces or tab) ---
-        if line.startswith("  ") or line.startswith("\t"):
-            if current_txn is None:
-                raise ParseError("posting found outside a transaction block", lineno)
-            posting = _parse_posting(stripped, lineno)
-            # Enforce at-most-one elided amount per block
-            if posting.amount is None:
-                elided = [p for p in current_txn.postings if p.amount is None]
-                if elided:
-                    raise ParseError(
-                        "a transaction block may have at most one elided amount", lineno
-                    )
-            current_txn.postings.append(posting)
-            continue
-
         # --- Transaction header (non-indented line starting with a simple date) ---
         #
         # Purpose: quickly determine whether a non-indented line opens a new
         #          transaction block before handing off to _parse_txn_header.
+        #          This check runs before posting detection so that a date-like
+        #          token at column 0 is always treated as a new header, never as
+        #          an un-indented posting inside an open block.
         # Pattern: ^(?:\d{4}[-/.])?(?:\d{1,2})[-/.](?:\d{1,2})(?=[\s*!(]|$)
         #   ^                         — anchored to start of the rstripped line
         #   (?:\d{4}[-/.])?           — optional four-digit year + separator
@@ -373,7 +364,34 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             in_block_comment = True
             continue
 
-        # --- Any other non-indented line: silently skip (directives, etc.) ---
+        # --- Posting line ---
+        #
+        # Posting lines are conventionally written with 2+ leading spaces or a
+        # tab, but indentation is not strictly required inside an open block.
+        # Any line inside an open transaction block that has not been matched by
+        # the blank-line, comment, transaction-header, or directive branches
+        # above is treated as a posting.
+        #
+        # Indented lines (2+ spaces or tab) outside a transaction block still
+        # raise ParseError — indentation unambiguously signals "this is a
+        # posting", so encountering one with no open block is always an error.
+        # Non-indented lines outside a block are silently skipped (directives,
+        # stray text, etc.).
+        if current_txn is None and (line.startswith("  ") or line.startswith("\t")):
+            raise ParseError("posting found outside a transaction block", lineno)
+        if current_txn is not None:
+            posting = _parse_posting(stripped, lineno)
+            # Enforce at-most-one elided amount per block
+            if posting.amount is None:
+                elided = [p for p in current_txn.postings if p.amount is None]
+                if elided:
+                    raise ParseError(
+                        "a transaction block may have at most one elided amount", lineno
+                    )
+            current_txn.postings.append(posting)
+            continue
+
+        # --- Any other line outside a transaction block: silently skip ---
 
     # Flush final block if file ends without a trailing blank line
     if current_txn is not None:

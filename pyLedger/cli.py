@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from pyLedger import __version__
+from PyLedger import __version__
 
 
 COMMANDS = ("balance", "register", "accounts", "print", "stats")
@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        from pyLedger.parser import parse_file
+        from PyLedger.parser import parse_file
         journal = parse_file(args.journal)
     except FileNotFoundError:
         print(f"pyLedger: file not found: {args.journal}", file=sys.stderr)
@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        import pyLedger.reports as reports
+        import PyLedger.reports as reports
 
         if args.command == "balance":
             result = reports.balance(journal)

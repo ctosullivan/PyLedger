@@ -17,7 +17,49 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-### [0.1.0-dev.9] — Process: milestone archiving rule + Milestone 0 archive
+### [0.1.0-dev.11] — Fix: normalise internal imports to PyLedger (capital P)
+
+**What changed:**
+- `PyLedger/parser.py` — `from pyLedger.models import` → `from PyLedger.models import`
+- `PyLedger/reports.py` — `from pyLedger.models import` → `from PyLedger.models import`
+- `PyLedger/cli.py` — all three `pyLedger` references updated to `PyLedger`
+- `PyLedger/parser.py` — posting-outside-block guard restored: indented lines
+  outside a transaction block still raise `ParseError`; non-indented lines outside
+  a block are silently skipped
+
+**Human:** Directed that all internal imports be normalised to `PyLedger`
+(capital P) to match the package directory name and resolve the
+`ModuleNotFoundError` that prevented the test suite from running.
+
+**Claude:** Updated all cross-module imports in the three affected files, ran the
+suite (36 tests), diagnosed one regression in `test_posting_outside_block_raises`
+caused by the indentation relaxation, restored the guard for indented lines
+outside a block, and confirmed 36/36 pass.
+
+---
+
+### [0.1.0-dev.10] — Fix: relax posting-line indentation requirement
+
+**What changed:**
+- `pyLedger/parser.py` — state machine restructured: transaction-header and
+  directive checks now run before posting detection; posting branch changed from
+  `line.startswith("  ") or line.startswith("\t")` to `current_txn is not None`,
+  making indentation conventional rather than mandatory; `parse_string` docstring
+  updated to document the relaxed rule; posting-branch inline comment updated
+- `docs/hledger-compatibility.md` — first delimiter rule updated (user-applied):
+  posting indentation noted as conventional, not required
+
+**Human:** Identified that the strict 2+ space / tab gate in `parse_string`
+contradicted the updated compatibility doc stating indentation is not a
+requirement; directed the parser to be updated to match.
+
+**Claude:** Restructured the state-machine branch order so that transaction-header
+and directive checks run first, then any unmatched line inside an open block is
+treated as a posting regardless of indentation.
+
+---
+
+### [11c35f8] — 2026-04-15 — Process: milestone archiving rule + Milestone 0 archive
 
 **What changed:**
 - `CLAUDE.md` — "Changelog & Roadmap Rules" bullet updated: milestones may only

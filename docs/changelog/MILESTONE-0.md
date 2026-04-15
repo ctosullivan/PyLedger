@@ -1,7 +1,7 @@
 # Changelog — Milestone 0: Project Foundation
 
 Archived on: 2026-04-15
-GitHub commits: pending initial commit
+GitHub commits: cfc1bd0
 
 ---
 

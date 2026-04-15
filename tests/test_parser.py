@@ -5,8 +5,8 @@ import os
 import unittest
 from decimal import Decimal
 
-from pyLedger.models import Amount, Journal, Posting, Transaction
-from pyLedger.parser import ParseError, parse_file, parse_string
+from PyLedger.models import Amount, Journal, Posting, Transaction
+from PyLedger.parser import ParseError, parse_file, parse_string
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 SAMPLE_JOURNAL = os.path.join(FIXTURES, "sample.journal")

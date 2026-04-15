@@ -54,7 +54,7 @@ A transaction block is the fundamental unit of a journal file.
 │           │  │        └──────────── description             (optional, free text)
 │           │  └───────────────────── transaction code        (optional, parenthesised)
 │           └──────────────────────── status: * cleared / ! pending (optional)
-└──────────────────────────────────── date YYYY-MM-DD         (REQUIRED)
+└──────────────────────────────────── date YYYY-MM-DD         (REQUIRED - Simple Date Format)
 
     expenses:food:groceries   £85.40          ← posting lines (2+ space indent)
     assets:bank:checking                      ← elided amount (at most ONE per block)
@@ -63,10 +63,13 @@ A transaction block is the fundamental unit of a journal file.
 ```
 
 **Delimiter rules:**
-- A block **begins** on any non-indented line whose first token matches `\d{4}-\d{2}-\d{2}`
+- A block **begins** on any non-indented line whose first token is a valid simple
+  date: `\d{4}[-/.]\d{1,2}[-/.]\d{1,2}` (full date) or `\d{1,2}[-/.]\d{1,2}`
+  (year-omitted); all three separators (`-`, `/`, `.`) and optional leading zeros
+  are accepted, consistent with the Simple date spec in the In Scope table
 - A block **ends** on the first blank line that follows the header, or at end of file
 - The field order on the header line is fixed: `date [flag] [(code)] [description] [; comment]`
-- Posting lines are identified by 2+ leading spaces (or a tab)
+- Posting lines are generally identified by 2+ leading spaces (or a tab), however this is not a requirement
 - Within a posting line, the account name and amount **must** be separated by
   two or more spaces; a single space is treated as part of the account name
   (e.g. `expenses:fun money`) — a `ParseError` is raised if no double-space
