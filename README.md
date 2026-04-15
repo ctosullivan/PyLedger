@@ -46,3 +46,32 @@ See [docs/architecture.md](docs/architecture.md) for module design and
 
 See [docs/hledger-compatibility.md](docs/hledger-compatibility.md) for which
 hledger journal features are supported in v1.
+
+## Acknowledgements
+
+PyLedger is a Python implementation inspired by two pioneering plain-text
+accounting projects. We gratefully acknowledge their authors and contributors.
+
+### Ledger
+
+**John Wiegley** created Ledger, the original plain-text double-entry accounting
+tool, which established the journal file format and accounting model that this
+ecosystem is built upon.
+
+  https://github.com/ledger/ledger
+
+### hledger
+
+**Simon Michael** created hledger, a Haskell implementation of Ledger's concepts,
+which has since evolved its own rich feature set and extensive documentation.
+PyLedger's journal format support is modelled primarily on the hledger 1.52
+specification.
+
+  https://github.com/simonmichael/hledger
+
+A full list of hledger contributors can be found at:
+
+  https://github.com/simonmichael/hledger/blob/main/doc/CREDITS.md
+
+Their work — and the broader plain-text accounting community — makes PyLedger
+possible.

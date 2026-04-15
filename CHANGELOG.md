@@ -17,6 +17,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [0.1.0-dev.8] — Docs: MIT License and acknowledgements
+
+**What changed:**
+- `LICENSE` — MIT License added; Acknowledgements section credits John Wiegley
+  and the Ledger project (https://github.com/ledger/ledger) and Simon Michael
+  and hledger contributors (https://github.com/simonmichael/hledger), with a
+  pointer to the full hledger CREDITS file
+
+**Human:** Directed that an MIT License be added with acknowledgements to the
+Ledger project / John Wiegley and the hledger project / Simon Michael and
+contributors. Human subsequently manually copied acknowledgements to Readme.md
+
+**Claude:** Created `LICENSE` with standard MIT terms and a plain-English
+Acknowledgements section naming both upstream projects and linking to the
+hledger CREDITS page.
+
+---
+
 ### [0.1.0-dev.7] — Feature: block comments + comment coverage audit
 
 **What changed:**
