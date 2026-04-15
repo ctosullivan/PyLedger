@@ -130,15 +130,17 @@ retroactively if editing a file that already contains undocumented regexes.
   section
 - Each entry must include a **Human** line (what the user directed) and a
   **Claude** line (what Claude implemented)
-- When a milestone in `ROADMAP.md` is completed, update its status to `[DONE]`
-  in the same response
+- A milestone must **only** be marked `[DONE]` in `ROADMAP.md` when the user
+  explicitly states it is complete — Claude must never infer completion
+  unilaterally
 - Do not move individual changelog entries from `[Unreleased]` to a versioned
   section — that is done manually at commit time by the user
 
 ### Milestone archiving
 
-When a major milestone is marked `[DONE]`, Claude must archive its changelog
-entries **in the same response**:
+When the user explicitly states that a milestone is complete (and its status is
+therefore `[DONE]`), Claude must archive its changelog entries **in the same
+response**:
 
 1. Create `docs/changelog/MILESTONE-N.md` containing all dev entries for that
    milestone (oldest first), the archive date, and the relevant commit hashes

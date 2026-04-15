@@ -17,6 +17,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [0.1.0-dev.9] — Process: milestone archiving rule + Milestone 0 archive
+
+**What changed:**
+- `CLAUDE.md` — "Changelog & Roadmap Rules" bullet updated: milestones may only
+  be marked `[DONE]` when the user explicitly states completion; "Milestone
+  archiving" heading clarified to match
+- `ROADMAP.md` — "Deciding What Goes Into a Milestone" step 4 updated with the
+  same explicit-user-approval requirement
+- `docs/changelog/MILESTONE-0.md` — created; contains the `[0.1.0-dev.0]`
+  scaffold entry (oldest first), archive date, and commit placeholder
+- `CHANGELOG.md` — `[0.1.0-dev.0]` replaced with a single summary line linking
+  to the archive file
+
+**Human:** Directed that milestones should only be marked complete when
+explicitly specified by the user; confirmed Milestone 0 is complete and directed
+execution of the archiving procedure.
+
+**Claude:** Updated the rule in `CLAUDE.md` and `ROADMAP.md`, created
+`docs/changelog/` and `MILESTONE-0.md`, and replaced the dev.0 entry with a
+summary link.
+
+---
+
 ### [0.1.0-dev.8] — Docs: MIT License and acknowledgements
 
 **What changed:**
@@ -189,26 +212,13 @@ implemented all helpers, and authored the test file.
 
 ---
 
-### [0.1.0-dev.0] — Project scaffold + rename to PyLedger
+### [Milestone 0 — Project Foundation] — 2026-04-15
 
-**What changed:**
-- Initial project structure created: `CLAUDE.md`, `README.md`, `pyproject.toml`,
-  `docs/` (architecture, api-spec, hledger-compatibility, SYNC), `tests/`
-  (fixtures, README), `pyLedger/` (models, parser stub, reports stub, cli stub)
-- Project renamed from `hledger-python` → `PyLedger`; package folder renamed
-  `hledger/` → `pyLedger/`; CLI command renamed `hledger-py` → `pyLedger`;
-  all internal references updated
-- `.gitignore` added covering secrets/credentials, Python build artefacts,
-  virtual environments, IDEs, and private `.journal` files
+Full detail: [docs/changelog/MILESTONE-0.md](docs/changelog/MILESTONE-0.md)
 
-**Human:** Defined the full project brief: module structure, CLAUDE.md contract
-rules (doc-sync, unauthorised-change, testing, code style, hledger compatibility),
-and directed the rename to PyLedger.
-
-**Claude:** Generated all scaffold files, wrote the initial docs, implemented
-the data models (`Amount`, `Posting`, `Transaction`, `Journal`), created CLI
-argument parsing and the `print` command stub, authored the `.gitignore`, and
-applied all rename changes across every file and import.
+**Summary:** Established the full project scaffold, core data models, initial
+documentation suite, and developer tooling conventions that all subsequent
+milestones build on.
 
 ---
 

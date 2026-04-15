@@ -25,7 +25,7 @@ with no errors (empty suite passes).
 
 ---
 
-## Milestone 1 — Journal Parser `[DONE]`
+## Milestone 1 — Journal Parser `[IN PROGRESS]`
 
 Implement a working parser so that `.journal` files can be loaded into memory as
 `Journal` objects.
@@ -101,4 +101,5 @@ Before starting a new milestone, the user specifies the scope. Claude then:
 1. Confirms the scope against `docs/hledger-compatibility.md` (supported features only)
 2. Updates this file to move the milestone from `[PLANNED]` to `[IN PROGRESS]`
 3. Implements, tests, and updates docs in the same response
-4. Updates this file to `[DONE]` and adds a `CHANGELOG.md` entry on completion
+4. Updates this file to `[DONE]` **only when the user explicitly confirms the
+   milestone is complete**, and adds a `CHANGELOG.md` entry at that point
