@@ -1,0 +1,384 @@
+"""Tests for pyLedger.parser — parse_string and parse_file."""
+
+import datetime
+import os
+import unittest
+from decimal import Decimal
+
+from pyLedger.models import Amount, Journal, Posting, Transaction
+from pyLedger.parser import ParseError, parse_file, parse_string
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+SAMPLE_JOURNAL = os.path.join(FIXTURES, "sample.journal")
+
+
+class TestParseStringSampleJournal(unittest.TestCase):
+    """Test 1: parse the full sample.journal end-to-end."""
+
+    def setUp(self):
+        self.journal = parse_file(SAMPLE_JOURNAL)
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.journal.transactions), 5)
+
+    def test_dates(self):
+        expected = [
+            datetime.date(2024, 1, 1),
+            datetime.date(2024, 1, 5),
+            datetime.date(2024, 1, 10),
+            datetime.date(2024, 1, 15),
+            datetime.date(2024, 1, 20),
+        ]
+        actual = [t.date for t in self.journal.transactions]
+        self.assertEqual(actual, expected)
+
+    def test_descriptions(self):
+        expected = [
+            "Opening balance",
+            "Salary",
+            "Supermarket",
+            "Transfer to savings",
+            "Coffee shop",
+        ]
+        actual = [t.description for t in self.journal.transactions]
+        self.assertEqual(actual, expected)
+
+    def test_source_file_set(self):
+        self.assertEqual(self.journal.source_file, SAMPLE_JOURNAL)
+
+
+class TestStatusFlags(unittest.TestCase):
+    """Test 2: cleared (*) and pending (!) flags."""
+
+    def test_cleared_flag(self):
+        journal = parse_string("2024-01-05 * Salary\n    income:salary  -£100\n    assets:bank  £100\n")
+        self.assertTrue(journal.transactions[0].cleared)
+        self.assertFalse(journal.transactions[0].pending)
+
+    def test_pending_flag(self):
+        journal = parse_string("2024-01-15 ! Transfer\n    assets:savings  £50\n    assets:bank  -£50\n")
+        self.assertTrue(journal.transactions[0].pending)
+        self.assertFalse(journal.transactions[0].cleared)
+
+    def test_no_flag(self):
+        journal = parse_string("2024-01-10 Groceries\n    expenses:food  £30\n    assets:bank  -£30\n")
+        self.assertFalse(journal.transactions[0].cleared)
+        self.assertFalse(journal.transactions[0].pending)
+
+
+class TestElidedAmount(unittest.TestCase):
+    """Test 3: a posting with no amount has amount=None."""
+
+    def test_elided_amount_is_none(self):
+        journal = parse_string(
+            "2024-01-10 Groceries\n"
+            "    expenses:food  £30.00\n"
+            "    assets:bank\n"
+        )
+        postings = journal.transactions[0].postings
+        self.assertIsNotNone(postings[0].amount)
+        self.assertIsNone(postings[1].amount)
+
+
+class TestPrefixCommodity(unittest.TestCase):
+    """Test 4: prefix commodity symbol (£30.00)."""
+
+    def test_prefix_symbol(self):
+        journal = parse_string(
+            "2024-01-10 Groceries\n"
+            "    expenses:food  £30.00\n"
+            "    assets:bank  -£30.00\n"
+        )
+        amount = journal.transactions[0].postings[0].amount
+        self.assertEqual(amount.quantity, Decimal("30.00"))
+        self.assertEqual(amount.commodity, "£")
+
+
+class TestSuffixCommodity(unittest.TestCase):
+    """Test 5: suffix commodity symbol (30.00 EUR)."""
+
+    def test_suffix_symbol(self):
+        journal = parse_string(
+            "2024-01-10 Exchange\n"
+            "    assets:eur  30.00 EUR\n"
+            "    assets:bank  -30.00 EUR\n"
+        )
+        amount = journal.transactions[0].postings[0].amount
+        self.assertEqual(amount.quantity, Decimal("30.00"))
+        self.assertEqual(amount.commodity, "EUR")
+
+
+class TestNegativeAmount(unittest.TestCase):
+    """Test 6: negative amounts (-£5.00)."""
+
+    def test_negative_prefix(self):
+        journal = parse_string(
+            "2024-01-10 Refund\n"
+            "    assets:bank  -£5.00\n"
+            "    expenses:food  £5.00\n"
+        )
+        amount = journal.transactions[0].postings[0].amount
+        self.assertEqual(amount.quantity, Decimal("-5.00"))
+        self.assertEqual(amount.commodity, "£")
+
+    def test_negative_suffix(self):
+        journal = parse_string(
+            "2024-01-10 Refund\n"
+            "    assets:bank  -30.00 EUR\n"
+            "    expenses:food  30.00 EUR\n"
+        )
+        amount = journal.transactions[0].postings[0].amount
+        self.assertEqual(amount.quantity, Decimal("-30.00"))
+        self.assertEqual(amount.commodity, "EUR")
+
+
+class TestThousandsSeparator(unittest.TestCase):
+    """Test 7: thousands separator commas (£1,234.56)."""
+
+    def test_thousands_comma(self):
+        journal = parse_string(
+            "2024-01-05 Salary\n"
+            "    assets:bank  £1,234.56\n"
+            "    income:salary  -£1,234.56\n"
+        )
+        amount = journal.transactions[0].postings[0].amount
+        self.assertEqual(amount.quantity, Decimal("1234.56"))
+        self.assertEqual(amount.commodity, "£")
+
+
+class TestComments(unittest.TestCase):
+    """Test 8: comment lines are ignored; inline comments are captured."""
+
+    def test_whole_line_semicolon_comment_ignored(self):
+        journal = parse_string(
+            "; this whole line is a comment\n"
+            "2024-01-10 Groceries\n"
+            "    expenses:food  £30.00\n"
+            "    assets:bank  -£30.00\n"
+        )
+        self.assertEqual(len(journal.transactions), 1)
+
+    def test_whole_line_hash_comment_ignored(self):
+        journal = parse_string(
+            "# another comment style\n"
+            "2024-01-10 Groceries\n"
+            "    expenses:food  £30.00\n"
+            "    assets:bank  -£30.00\n"
+        )
+        self.assertEqual(len(journal.transactions), 1)
+
+    def test_inline_comment_on_header_captured(self):
+        journal = parse_string(
+            "2024-01-20 Coffee shop  ; business meeting\n"
+            "    expenses:food  £4.50\n"
+            "    assets:bank  -£4.50\n"
+        )
+        self.assertEqual(journal.transactions[0].comment, "business meeting")
+
+
+class TestPostingBeforeTransaction(unittest.TestCase):
+    """Test 9: a posting line outside a transaction block raises ParseError."""
+
+    def test_posting_outside_block_raises(self):
+        with self.assertRaises(ParseError) as ctx:
+            parse_string("    expenses:food  £30.00\n")
+        self.assertIn("outside a transaction block", str(ctx.exception))
+
+
+class TestTwoElidedAmounts(unittest.TestCase):
+    """Test 10: two elided amounts in one block raises ParseError."""
+
+    def test_two_elided_raises(self):
+        with self.assertRaises(ParseError) as ctx:
+            parse_string(
+                "2024-01-10 Groceries\n"
+                "    expenses:food\n"
+                "    assets:bank\n"
+            )
+        self.assertIn("at most one elided amount", str(ctx.exception))
+
+
+class TestBlockComments(unittest.TestCase):
+    """Tests for the comment / end comment block-comment directive."""
+
+    def test_block_comment_between_transactions(self):
+        """Content inside a block comment is not parsed as transactions."""
+        journal = parse_string(
+            "2024-01-01 Before\n"
+            "    expenses:food  £10.00\n"
+            "    assets:bank  -£10.00\n"
+            "\n"
+            "comment\n"
+            "2024-01-02 Inside — should be ignored\n"
+            "    expenses:food  £99.00\n"
+            "end comment\n"
+            "\n"
+            "2024-01-03 After\n"
+            "    expenses:food  £20.00\n"
+            "    assets:bank  -£20.00\n"
+        )
+        self.assertEqual(len(journal.transactions), 2)
+        self.assertEqual(journal.transactions[0].description, "Before")
+        self.assertEqual(journal.transactions[1].description, "After")
+
+    def test_block_comment_at_start_of_file(self):
+        """Block comment at file start does not produce transactions."""
+        journal = parse_string(
+            "comment\n"
+            "This file begins with a block comment.\n"
+            "end comment\n"
+            "\n"
+            "2024-01-05 Salary\n"
+            "    assets:bank  £100.00\n"
+            "    income:salary  -£100.00\n"
+        )
+        self.assertEqual(len(journal.transactions), 1)
+        self.assertEqual(journal.transactions[0].description, "Salary")
+
+    def test_unclosed_block_comment_runs_to_eof(self):
+        """A block comment without end comment silently consumes the rest of the file."""
+        journal = parse_string(
+            "2024-01-01 Real\n"
+            "    expenses:food  £5.00\n"
+            "    assets:bank  -£5.00\n"
+            "\n"
+            "comment\n"
+            "2024-01-02 Ignored\n"
+            "    expenses:food  £999.00\n"
+        )
+        self.assertEqual(len(journal.transactions), 1)
+        self.assertEqual(journal.transactions[0].description, "Real")
+
+    def test_follow_on_comment_line_skipped(self):
+        """Indented ; lines inside a transaction block are silently skipped."""
+        journal = parse_string(
+            "2024-01-10 Groceries\n"
+            "    ; this is a follow-on comment\n"
+            "    expenses:food  £30.00\n"
+            "    assets:bank  -£30.00\n"
+        )
+        self.assertEqual(len(journal.transactions[0].postings), 2)
+
+    def test_end_comment_outside_block_silently_ignored(self):
+        """end comment appearing outside a block comment is silently skipped."""
+        journal = parse_string(
+            "end comment\n"
+            "2024-01-01 Txn\n"
+            "    expenses:food  £5.00\n"
+            "    assets:bank  -£5.00\n"
+        )
+        self.assertEqual(len(journal.transactions), 1)
+
+
+class TestSimpleDateFormats(unittest.TestCase):
+    """Test suite for all accepted simple date formats."""
+
+    def _single_txn(self, date_line: str) -> datetime.date:
+        """Helper: parse a minimal transaction with the given date line."""
+        journal = parse_string(
+            f"{date_line} Test\n"
+            "    expenses:food  £10.00\n"
+            "    assets:bank  -£10.00\n"
+        )
+        return journal.transactions[0].date
+
+    def test_iso_hyphen(self):
+        """YYYY-MM-DD — baseline ISO format."""
+        self.assertEqual(self._single_txn("2024-01-15"), datetime.date(2024, 1, 15))
+
+    def test_slash_separator(self):
+        """YYYY/MM/DD — forward-slash separator."""
+        self.assertEqual(self._single_txn("2024/01/15"), datetime.date(2024, 1, 15))
+
+    def test_dot_separator(self):
+        """YYYY.MM.DD — dot separator."""
+        self.assertEqual(self._single_txn("2024.01.15"), datetime.date(2024, 1, 15))
+
+    def test_optional_leading_zeros(self):
+        """YYYY.M.D — leading zeros omitted on month and day."""
+        self.assertEqual(self._single_txn("2010.1.31"), datetime.date(2010, 1, 31))
+
+    def test_year_omitted_slash(self):
+        """M/DD — year omitted, inferred from default_year."""
+        journal = parse_string(
+            "1/31 Test\n"
+            "    expenses:food  £10.00\n"
+            "    assets:bank  -£10.00\n",
+            default_year=2025,
+        )
+        self.assertEqual(journal.transactions[0].date, datetime.date(2025, 1, 31))
+
+    def test_year_omitted_hyphen(self):
+        """MM-DD — year omitted with hyphen separator."""
+        journal = parse_string(
+            "03-15 Test\n"
+            "    expenses:food  £10.00\n"
+            "    assets:bank  -£10.00\n",
+            default_year=2024,
+        )
+        self.assertEqual(journal.transactions[0].date, datetime.date(2024, 3, 15))
+
+    def test_year_omitted_defaults_to_current_year(self):
+        """Year-omitted date with no default_year uses today's year."""
+        journal = parse_string(
+            "1/1 Test\n"
+            "    expenses:food  £10.00\n"
+            "    assets:bank  -£10.00\n",
+        )
+        expected_year = datetime.date.today().year
+        self.assertEqual(journal.transactions[0].date.year, expected_year)
+
+    def test_invalid_calendar_date_raises(self):
+        """A syntactically valid but calendar-invalid date raises ParseError."""
+        with self.assertRaises(ParseError):
+            parse_string(
+                "2024-13-01 Test\n"
+                "    expenses:food  £10.00\n"
+                "    assets:bank  -£10.00\n"
+            )
+
+
+class TestUnsupportedFileExtension(unittest.TestCase):
+    """Test 11: parse_file raises ParseError for unsupported extensions."""
+
+    def test_csv_extension_raises(self):
+        with self.assertRaises(ParseError) as ctx:
+            parse_file("myfile.csv")
+        self.assertIn("unsupported file format", str(ctx.exception))
+
+    def test_timeclock_extension_raises(self):
+        with self.assertRaises(ParseError) as ctx:
+            parse_file("myfile.timeclock")
+        self.assertIn("unsupported file format", str(ctx.exception))
+
+    def test_j_alias_raises(self):
+        """hledger accepts .j as a journal alias; PyLedger does not."""
+        with self.assertRaises(ParseError) as ctx:
+            parse_file("myfile.j")
+        self.assertIn("unsupported file format", str(ctx.exception))
+
+    def test_journal_extension_accepted(self):
+        """parse_file should not raise for a .journal file that exists."""
+        parse_file(SAMPLE_JOURNAL)  # raises only if file missing or parse fails
+
+    def test_ledger_extension_accepted(self):
+        """parse_file should accept a .ledger file (same format as .journal)."""
+        import tempfile, textwrap
+        content = textwrap.dedent("""\
+            2024-01-05 Salary
+                assets:bank  £100.00
+                income:salary  -£100.00
+        """)
+        with tempfile.NamedTemporaryFile(suffix=".ledger", mode="w",
+                                         encoding="utf-8", delete=False) as f:
+            f.write(content)
+            tmp = f.name
+        try:
+            journal = parse_file(tmp)
+            self.assertEqual(len(journal.transactions), 1)
+        finally:
+            os.unlink(tmp)
+
+
+if __name__ == "__main__":
+    unittest.main()
