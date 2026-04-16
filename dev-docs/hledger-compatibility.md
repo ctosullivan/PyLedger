@@ -126,8 +126,9 @@ A transaction block is the fundamental unit of a journal file.
 
 | Feature | Syntax | Notes |
 |---|---|---|
-| P directive | `P DATE COMMODITY PRICE` | Market price declaration; stored in `Journal.prices` as `PriceDirective` objects; scope is global (all entries in all files). Reference: https://hledger.org/1.52/hledger.html#p-directive |
+| P directive | `P DATE COMMODITY PRICE` | Market price declaration; stored in `Journal.prices` as `PriceDirective` objects; records a commodity price at a point in time. Scope behaviour (file-local vs propagated via `include`) TBD at implementation. Commodity valuation using stored prices is in scope for v1 (Milestone 2). Reference: https://hledger.org/1.52/hledger.html#p-directive |
 | alias directive | `alias OLD=NEW` / `alias /REGEX/=REPLACEMENT` / `end aliases` | Account name rewriting; applies from directive to `end aliases` or file end; backreferences (`\1`) supported in regex form; local to current file. Reference: https://hledger.org/1.52/hledger.html#alias-directive |
+| include directive | `include other.journal` | Embeds entries and directives from another `.journal` or `.ledger` file inline at the point of the directive; directives active before the include apply to the included file; only `.journal` and `.ledger` targets accepted (other extensions raise `ParseError`). Reference: https://hledger.org/1.52/hledger.html#include-directive |
 
 ---
 
@@ -139,7 +140,7 @@ feature below.
 
 | Feature | hledger syntax | v1 behaviour |
 |---|---|---|
-| Directives | `account`, `commodity`, `include`, etc. | Silently ignored (lines starting with a known keyword are skipped) |
+| Directives | `account`, `commodity`, etc. | Silently ignored (lines starting with a known keyword are skipped) |
 | Auto postings | `= expenses:food` rules | `ParseError` |
 | Periodic transactions | `~ monthly` | `ParseError` |
 | Timeclock entries | `i`, `o`, `b`, `h` records | `ParseError` |
@@ -150,7 +151,6 @@ feature below.
 | Balance assertions | `assets:checking = £500` | Silently ignored |
 | Virtual postings | `(expenses:food)` or `[expenses:food]` | `ParseError` |
 | Multi-currency auto-conversion | | Not supported |
-| `include` directive | `include other.journal` | Silently ignored |
 
 ---
 

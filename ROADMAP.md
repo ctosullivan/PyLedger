@@ -43,6 +43,9 @@ Implement a working parser so that `.journal` files can be loaded into memory as
   in `Journal.prices` as `PriceDirective` objects
 - **alias directive** (`alias OLD=NEW` / `alias /REGEX/=REPLACEMENT` /
   `end aliases`) — account names rewritten at parse time within the current file
+- **include directive** (`include other.journal`) — embeds entries and directives
+  from another `.journal` or `.ledger` file inline; only those two extensions
+  accepted (other extensions raise `ParseError`)
 - Module-level API: `Journal` report methods (`.balance()`, `.register()`,
   `.accounts()`, `.stats()`); `PyLedger.load()` convenience function;
   `python -m PyLedger` entry point
@@ -57,6 +60,8 @@ Implement a working parser so that `.journal` files can be loaded into memory as
 - P directives parsed and stored in `journal.prices`
 - Account aliases applied correctly against a fixture covering both simple and
   regex alias forms
+- `include` directive resolves relative paths; included file entries appear in
+  the resulting `Journal` as if written inline
 
 ---
 
@@ -71,6 +76,9 @@ Implement the four report functions so that all CLI commands produce output.
 - `balance(journal, accounts=None) -> dict[str, Decimal]`
 - `stats(journal) -> JournalStats`
 - `register(journal, accounts=None) -> list[RegisterRow]`
+- Commodity valuation using `Journal.prices` — convert/value amounts in reports
+  using P directive data; scope behaviour (file-local vs propagated via
+  `include`) to be confirmed at implementation
 - Unit tests for each report (`tests/test_reports.py`)
 - `dev-docs/api-spec.md` updated to mark each function `[IMPLEMENTED]`
 - `docs/` human guides updated with real command output examples
@@ -103,7 +111,6 @@ Items not scheduled for a milestone yet. Promote to a milestone when prioritised
 | Strict mode (balance validation) | Parser accepts unbalanced transactions; reports could flag them |
 | Multiple commodities per journal | Currently assumed single-commodity per transaction |
 | Account type inference | Infer assets/liabilities/income/expenses from name prefix |
-| `include` directive | Compose multiple `.journal` files |
 | Periodic/auto postings | Out of scope for v1 |
 | Secondary dates | `2024-01-15=2024-01-20` |
 

@@ -17,6 +17,51 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — Docs: correct P directive scope description
+
+**What changed:**
+- `docs/journal-format.md` — P directive section rewritten: removed incorrect
+  "global" scope claim; added explanation of `journal.prices` (a list of
+  `PriceDirective` objects, one per directive, in file order, each recording
+  date, commodity, and price amount); removed milestone language from human doc
+- `dev-docs/hledger-compatibility.md` — P directive notes updated: "global"
+  removed; scope behaviour (file-local vs propagated via `include`) documented
+  as TBD at implementation; commodity valuation noted as in-scope for Milestone 2
+- `dev-docs/api-spec.md` — `PriceDirective` section updated: note added that
+  commodity valuation is in scope for v1 (Milestone 2)
+- `ROADMAP.md` — Milestone 2 candidate scope updated: commodity valuation using
+  `Journal.prices` added as an explicit line item
+
+**Human:** Identified that the P directive docs incorrectly stated "global
+(apply to all entries in the file)"; clarified that P directives declare a
+commodity price at a point in time, that `journal.prices` should be explained
+to human readers, and that commodity valuation is in scope for v1.
+
+**Claude:** Updated all four files; removed "global" claim; explained
+`journal.prices` in human docs; moved commodity valuation into Milestone 2
+candidate scope in the roadmap.
+
+---
+
+### [Unreleased] — Scope: add `include` directive to Milestone 1
+
+**What changed:**
+- `dev-docs/hledger-compatibility.md` — `include` directive moved from Out of
+  Scope → **In Scope (v1)** Directives table; behaviour documented (inline
+  embedding, parent-directive propagation, `.journal`/`.ledger` targets only,
+  `ParseError` on unsupported extension); removed from "Directives" catch-all
+  Out of Scope row
+- `ROADMAP.md` — `include` directive added to Milestone 1 scope block and exit
+  criteria; removed from Future/Backlog table
+
+**Human:** Directed that the `include` directive is in scope for v1, referencing
+the hledger 1.52 specification.
+
+**Claude:** Fetched the hledger 1.52 `include` directive spec, updated the
+compatibility doc and roadmap accordingly.
+
+---
+
 ### [a2d68b3] — 2026-04-17 — Structural updates: docs split, packaging, module API, roadmap
 
 **What changed:**

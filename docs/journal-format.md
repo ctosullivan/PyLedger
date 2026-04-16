@@ -111,7 +111,7 @@ An unclosed `comment` block silently consumes the rest of the file.
 
 ## P Directive (Market Prices)
 
-Declares a commodity price on a given date. Used for valuation reports.
+Declares a commodity price on a given date.
 
 ```
 P 2024-03-01 AAPL $179.00
@@ -120,8 +120,30 @@ P 2024-03-15 EUR  1.08 USD
 
 Syntax: `P DATE COMMODITY PRICE`
 
-Price directives are stored in `journal.prices` and are global (apply to all
-entries in the file).
+Each P directive is stored as a `PriceDirective` in `journal.prices`.
+`journal.prices` is a list that holds every price declaration found in the
+file, in the order they appear. Each entry records: the date of the price,
+the commodity being priced (e.g. `AAPL`, `EUR`), and the price expressed
+as an amount (e.g. `$179.00`).
+
+---
+
+## Include Directive (Multiple Files)
+
+Embeds the contents of another journal file at the point of the directive, as
+if the entries were written inline.
+
+```
+include accounts.journal
+include ../shared/prices.journal
+```
+
+Syntax: `include PATH`
+
+Paths are relative to the file containing the directive. Only `.journal` and
+`.ledger` files may be included; other extensions raise a `ParseError`. Active
+directives (such as `alias`) at the point of the `include` apply to the
+included file's entries.
 
 ---
 
@@ -158,6 +180,5 @@ The following hledger features are not supported in PyLedger v1:
 - Virtual postings (`(expenses:food)` or `[expenses:food]`)
 - Auto postings (`= expenses:food` rules)
 - Periodic transactions (`~ monthly`)
-- `include` directive
 - Decimal comma style (`1.234,56`)
 - Smart dates (`today`, `last month`, etc.)

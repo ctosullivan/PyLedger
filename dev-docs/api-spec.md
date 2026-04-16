@@ -110,6 +110,9 @@ Represents one `P` directive from the journal. Stored in `Journal.prices`.
 
 Example journal line: `P 2024-03-01 AAPL $179.00`
 
+Commodity valuation using these records (converting amounts between commodities
+in reports) is in scope for v1 and will be implemented in Milestone 2.
+
 ---
 
 ### `Journal` `[IMPLEMENTED]`
