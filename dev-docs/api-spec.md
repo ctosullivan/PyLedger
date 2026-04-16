@@ -1,10 +1,36 @@
 # API Specification
 
-Status key: `[PLANNED]` = not yet implemented.
+Status key: `[IMPLEMENTED]` · `[STUB — Milestone 2]` · `[PLANNED]`
 
 ---
 
-## `pyLedger/models.py`
+## Top-level (`PyLedger/__init__.py`)
+
+### `load` `[IMPLEMENTED]`
+
+```python
+def load(path: str | os.PathLike) -> Journal:
+    """Load a .journal or .ledger file and return a Journal object.
+
+    Alias for parse_file(). Intended for programmatic use:
+        import PyLedger
+        journal = PyLedger.load("myfile.journal")
+
+    Raises:
+        FileNotFoundError: if the path does not exist.
+        ParseError: if the extension is unsupported or the file is malformed.
+    """
+```
+
+Also invocable as a module:
+
+```
+python -m PyLedger <command> <journal-file>
+```
+
+---
+
+## `PyLedger/models.py`
 
 ### `Amount` `[IMPLEMENTED]`
 
@@ -53,7 +79,7 @@ class Transaction:
 
 Represents a complete journal transaction entry.
 
-**Wire → model mapping** (see `docs/hledger-compatibility.md` for block delimiters):
+**Wire → model mapping** (see `dev-docs/hledger-compatibility.md` for block delimiters):
 
 ```
 "2024-01-15 * (INV-42) Groceries ; comment"
@@ -70,20 +96,49 @@ posting whose value is inferred from the other postings at reporting time.
 
 ---
 
+### `PriceDirective` `[IMPLEMENTED]`
+
+```python
+@dataclass
+class PriceDirective:
+    date: datetime.date
+    commodity: str   # The commodity being priced, e.g. "AAPL", "EUR"
+    price: Amount    # The price expressed as an Amount (quantity + currency symbol)
+```
+
+Represents one `P` directive from the journal. Stored in `Journal.prices`.
+
+Example journal line: `P 2024-03-01 AAPL $179.00`
+
+---
+
 ### `Journal` `[IMPLEMENTED]`
 
 ```python
 @dataclass
 class Journal:
     transactions: list[Transaction]
-    source_file: str | None = None  # Path of the originating .journal or .ledger file
+    prices: list[PriceDirective] = field(default_factory=list)
+    source_file: str | None = None
 ```
 
 Top-level container for all parsed journal data.
 
+**Report methods** (delegate to `PyLedger.reports` via lazy import):
+
+```python
+def balance(self, accounts: list[str] | None = None) -> dict[str, Decimal]: ...
+def register(self, accounts: list[str] | None = None) -> list[RegisterRow]: ...
+def accounts(self) -> list[str]: ...
+def stats(self) -> JournalStats: ...
+```
+
+All four methods are currently `[STUB — Milestone 2]` — they raise
+`NotImplementedError` until the reports module is implemented.
+
 ---
 
-## `pyLedger/parser.py`
+## `PyLedger/parser.py`
 
 ### `ParseError` `[IMPLEMENTED]`
 
@@ -121,43 +176,35 @@ def parse_file(path: str | os.PathLike) -> Journal:
     """Read a .journal or .ledger file from disk and return a Journal object.
 
     Supported extensions: .journal, .ledger
-    See docs/hledger-compatibility.md for the full format support matrix.
+    See dev-docs/hledger-compatibility.md for the full format support matrix.
 
     Raises:
         FileNotFoundError: if the path does not exist.
-        ParseError: if the file extension is not supported, or if the file
+        ParseError: if the extension is not supported, or if the file
                     contents are not valid hledger journal syntax.
     """
 ```
 
 ---
 
-## `pyLedger/reports.py`
+## `PyLedger/reports.py`
 
-All report functions accept a `Journal` as their first argument.
+All report functions accept a `Journal` as their first argument and are also
+accessible as methods on `Journal` directly (e.g. `journal.balance()`).
 
-### `balance` `[PLANNED]`
+### `balance` `[STUB — Milestone 2]`
 
 ```python
 def balance(
     journal: Journal,
     accounts: list[str] | None = None,
 ) -> dict[str, Decimal]:
-    """Return a mapping of account name to net balance.
-
-    Args:
-        journal: The parsed journal.
-        accounts: Optional list of account name prefixes to filter by.
-                  If None, all accounts are included.
-
-    Returns:
-        Dict mapping each account name to its net balance as a Decimal.
-    """
+    """Return a mapping of account name to net balance."""
 ```
 
 ---
 
-### `register` `[PLANNED]`
+### `register` `[STUB — Milestone 2]`
 
 ```python
 @dataclass
@@ -172,17 +219,12 @@ def register(
     journal: Journal,
     accounts: list[str] | None = None,
 ) -> list[RegisterRow]:
-    """Return a chronological list of register rows.
-
-    Args:
-        journal: The parsed journal.
-        accounts: Optional list of account name prefixes to filter by.
-    """
+    """Return a chronological list of register rows."""
 ```
 
 ---
 
-### `accounts` `[PLANNED]`
+### `accounts` `[STUB — Milestone 2]`
 
 ```python
 def accounts(journal: Journal) -> list[str]:
@@ -191,7 +233,7 @@ def accounts(journal: Journal) -> list[str]:
 
 ---
 
-### `stats` `[PLANNED]`
+### `stats` `[STUB — Milestone 2]`
 
 ```python
 @dataclass
@@ -208,13 +250,13 @@ def stats(journal: Journal) -> JournalStats:
 
 ---
 
-## `pyLedger/cli.py`
+## `PyLedger/cli.py`
 
-### `main` `[PLANNED]`
+### `main` `[IMPLEMENTED]`
 
 ```python
 def main(argv: list[str] | None = None) -> int:
-    """Entry point for the pyLedger CLI.
+    """Entry point for the PyLedger CLI.
 
     Args:
         argv: Argument list (defaults to sys.argv[1:] when None).
@@ -224,10 +266,11 @@ def main(argv: list[str] | None = None) -> int:
     """
 ```
 
-CLI interface (via `pyproject.toml` `[project.scripts]`):
+CLI interface (via `pyproject.toml` `[project.scripts]` and `PyLedger/__main__.py`):
 
 ```
-pyLedger <command> [options] <journal-file>
+PyLedger <command> [options] <journal-file>
+python -m PyLedger <command> [options] <journal-file>
 
 Commands:
   balance    Print account balances

@@ -10,8 +10,8 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
-pyLedger = "pyLedger.cli:main"
+PyLedger = "PyLedger.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["pyLedger*"]
+include = ["PyLedger*"]

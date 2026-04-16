@@ -8,6 +8,7 @@ A Python implementation of the [hledger](https://hledger.org) plain-text account
 - Core commands: `balance`, `register`, `print`, `accounts`, `stats`
 - Pure Python — no third-party runtime dependencies
 - Modular, testable architecture
+- Use as a CLI tool or as a Python library
 
 ## Requirements
 
@@ -21,31 +22,78 @@ pip install -e .
 
 ## Usage
 
+### CLI
+
 ```bash
-pyLedger balance myfile.journal
-pyLedger register myfile.journal
-pyLedger accounts myfile.journal
-pyLedger print myfile.journal
-pyLedger stats myfile.journal
+PyLedger balance myfile.journal
+PyLedger register myfile.journal
+PyLedger accounts myfile.journal
+PyLedger print myfile.journal
+PyLedger stats myfile.journal
 ```
+
+You can also invoke PyLedger as a Python module:
+
+```bash
+python -m PyLedger balance myfile.journal
+```
+
+### Python library
+
+```python
+import PyLedger
+
+journal = PyLedger.load("myfile.journal")
+accounts = journal.accounts()
+balance  = journal.balance()
+```
+
+See [docs/python-api.md](docs/python-api.md) for the full library reference.
+
+## Documentation
+
+| Guide | Description |
+|---|---|
+| [docs/getting-started.md](docs/getting-started.md) | Installation, first run, verification |
+| [docs/usage.md](docs/usage.md) | CLI commands with examples |
+| [docs/journal-format.md](docs/journal-format.md) | Supported journal syntax with annotated examples |
+| [docs/python-api.md](docs/python-api.md) | Python library reference |
 
 ## Development
 
 ```bash
 # Run all tests
-python -m unittest discover tests/
-
-# Run a specific test module
-python -m unittest tests.test_parser
+python -m unittest tests.test_parser -v
 ```
 
-See [docs/architecture.md](docs/architecture.md) for module design and
-[docs/api-spec.md](docs/api-spec.md) for the public API.
+See [dev-docs/architecture.md](dev-docs/architecture.md) for module design and
+[dev-docs/api-spec.md](dev-docs/api-spec.md) for the full API specification.
 
 ## Hledger Compatibility
 
-See [docs/hledger-compatibility.md](docs/hledger-compatibility.md) for which
+See [dev-docs/hledger-compatibility.md](dev-docs/hledger-compatibility.md) for which
 hledger journal features are supported in v1.
+
+## Contributing
+
+### With AI tooling (Claude Code)
+
+Clone the full repository including AI-workflow files:
+
+```bash
+git clone https://github.com/ctosullivan/PyLedger.git
+```
+
+### Without AI tooling
+
+Use sparse checkout to clone only the source code, tests, and human docs
+(excludes `CLAUDE.md`, `dev-docs/`, `CHANGELOG.md`, `ROADMAP.md`):
+
+```bash
+git clone --filter=blob:none --sparse https://github.com/ctosullivan/PyLedger.git
+cd PyLedger
+git sparse-checkout set PyLedger tests docs README.md LICENSE pyproject.toml
+```
 
 ## Acknowledgements
 

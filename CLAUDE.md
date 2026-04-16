@@ -7,8 +7,8 @@ plain-text accounting tool.
 
 - **Target Python**: 3.10+
 - **Dependency policy**: Prefer Python built-in libraries. No third-party packages
-  in `pyLedger/` core modules without explicit user approval.
-- **Supported file formats**: `.journal`, `.ledger` (see `docs/hledger-compatibility.md`)
+  in `PyLedger/` core modules without explicit user approval.
+- **Supported file formats**: `.journal`, `.ledger` (see `dev-docs/hledger-compatibility.md`)
 
 ---
 
@@ -19,9 +19,10 @@ Whenever any of the following change, the corresponding doc(s) **MUST** be updat
 
 | What changed | Doc to update |
 |---|---|
-| Public function/class signatures (added, removed, renamed, retyped) | `docs/api-spec.md` |
-| Module responsibilities or data-flow | `docs/architecture.md` |
-| Hledger format feature support (added, removed, changed) | `docs/hledger-compatibility.md` |
+| Public function/class signatures (added, removed, renamed, retyped) | `dev-docs/api-spec.md` |
+| Module responsibilities or data-flow | `dev-docs/architecture.md` |
+| Hledger format feature support (added, removed, changed) | `dev-docs/hledger-compatibility.md` |
+| CLI commands, journal format, or public Python API (user-facing) | `docs/` (human docs — usage, journal-format, python-api) |
 | Any substantive code or doc change | `CHANGELOG.md` (new entry in `[Unreleased]`) |
 | Milestone completed or scope confirmed | `ROADMAP.md` (status updated) |
 
@@ -30,7 +31,7 @@ Claude must **NEVER** make code changes that silently break the docs.
 If Claude is unsure whether a change requires a doc update, it must **ask before
 proceeding**.
 
-See `docs/SYNC.md` for the full sync contract.
+See `dev-docs/SYNC.md` for the full sync contract.
 
 ---
 
@@ -38,7 +39,7 @@ See `docs/SYNC.md` for the full sync contract.
 
 The following **must NOT be changed** without explicit user approval:
 
-1. `docs/api-spec.md` — public API contracts
+1. `dev-docs/api-spec.md` — public API contracts
 2. `pyproject.toml` — dependencies and project metadata
 3. The folder structure described in this file
 
@@ -58,7 +59,7 @@ If a user request would affect any of these, Claude must:
 
 Run the full test suite:
 ```
-python -m unittest discover tests/
+python -m unittest tests.test_parser -v
 ```
 
 ---
@@ -67,8 +68,8 @@ python -m unittest discover tests/
 
 - **Type hints** on all public functions and methods
 - **Docstrings** on all public classes and functions (one-line summary minimum)
-- No third-party imports in `pyLedger/` without user approval
-- Keep modules focused: see `docs/architecture.md` for each module's
+- No third-party imports in `PyLedger/` without user approval
+- Keep modules focused: see `dev-docs/architecture.md` for each module's
   single responsibility
 
 ### Regex Documentation Rule
@@ -117,7 +118,7 @@ retroactively if editing a file that already contains undocumented regexes.
 
 ## Hledger Compatibility
 
-- Consult `docs/hledger-compatibility.md` before implementing any parser feature
+- Consult `dev-docs/hledger-compatibility.md` before implementing any parser feature
 - Do **not** silently implement out-of-scope features — document them first
 - When in doubt about format semantics, link to the official hledger docs
 
@@ -142,11 +143,11 @@ When the user explicitly states that a milestone is complete (and its status is
 therefore `[DONE]`), Claude must archive its changelog entries **in the same
 response**:
 
-1. Create `docs/changelog/MILESTONE-N.md` containing all dev entries for that
+1. Create `dev-docs/changelog/MILESTONE-N.md` containing all dev entries for that
    milestone (oldest first), the archive date, and the relevant commit hashes
 2. Replace those entries in `CHANGELOG.md` with a single summary line linking
    to the archive file
-3. Ensure `docs/changelog/` exists (create it if absent)
+3. Ensure `dev-docs/changelog/` exists (create it if absent)
 
 See the "Archiving at milestone completion" section in `CHANGELOG.md` for the
 exact file format and templates.
@@ -161,23 +162,31 @@ PyLedger/
 ├── README.md
 ├── ROADMAP.md
 ├── CHANGELOG.md
+├── LICENSE
+├── MANIFEST.in
 ├── .gitignore
-├── docs/
+├── pyproject.toml
+├── dev-docs/                        ← AI-workflow / developer docs
 │   ├── api-spec.md
 │   ├── architecture.md
 │   ├── hledger-compatibility.md
 │   ├── SYNC.md
-│   └── changelog/               ← milestone archive files live here
+│   └── changelog/                   ← milestone archive files live here
+├── docs/                            ← human-facing user documentation
+│   ├── getting-started.md
+│   ├── usage.md
+│   ├── journal-format.md
+│   └── python-api.md
 ├── tests/
 │   ├── __init__.py
 │   ├── fixtures/
 │   │   └── sample.journal
 │   └── README.md
-├── pyLedger/
-│   ├── __init__.py
-│   ├── parser.py
-│   ├── models.py
-│   ├── reports.py
-│   └── cli.py
-└── pyproject.toml
+└── PyLedger/
+    ├── __init__.py
+    ├── __main__.py
+    ├── parser.py
+    ├── models.py
+    ├── reports.py
+    └── cli.py
 ```

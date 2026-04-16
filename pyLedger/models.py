@@ -50,8 +50,62 @@ class Transaction:
 
 
 @dataclass
+class PriceDirective:
+    """A P directive declaring a commodity market price on a given date.
+
+    Example journal line: P 2024-03-01 AAPL $179.00
+    Stored in Journal.prices for use by valuation reports.
+    """
+
+    date: datetime.date
+    commodity: str           # The commodity being priced (e.g. "AAPL", "EUR")
+    price: Amount            # The price expressed as an Amount (quantity + currency)
+
+
+@dataclass
 class Journal:
-    """Top-level container for all parsed journal data."""
+    """Top-level container for all parsed journal data.
+
+    Returned by parse_string() and parse_file(). Report methods on this class
+    delegate to PyLedger.reports and use lazy imports to avoid circular
+    dependencies between models.py and reports.py.
+    """
 
     transactions: list[Transaction] = field(default_factory=list)
+    prices: list[PriceDirective] = field(default_factory=list)
     source_file: str | None = None
+
+    # ------------------------------------------------------------------
+    # Report methods — thin wrappers that delegate to PyLedger.reports.
+    # Lazy imports are used to avoid a circular dependency:
+    #   models.py → reports.py → models.py
+    # ------------------------------------------------------------------
+
+    def balance(self, accounts: list[str] | None = None) -> dict[str, Decimal]:
+        """Return a mapping of account name to net balance.
+
+        Args:
+            accounts: Optional list of account name prefixes to filter by.
+                      If None, all accounts are included.
+        """
+        from PyLedger.reports import balance as _balance
+        return _balance(self, accounts)
+
+    def register(self, accounts: list[str] | None = None):
+        """Return a chronological list of RegisterRow objects.
+
+        Args:
+            accounts: Optional list of account name prefixes to filter by.
+        """
+        from PyLedger.reports import register as _register
+        return _register(self, accounts)
+
+    def accounts(self) -> list[str]:
+        """Return a sorted list of all unique account names in the journal."""
+        from PyLedger.reports import accounts as _accounts
+        return _accounts(self)
+
+    def stats(self):
+        """Return a JournalStats object with summary statistics."""
+        from PyLedger.reports import stats as _stats
+        return _stats(self)

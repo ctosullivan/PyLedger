@@ -17,7 +17,49 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-### [0.1.0-dev.11] — Fix: normalise internal imports to PyLedger (capital P)
+### [a2d68b3] — 2026-04-17 — Structural updates: docs split, packaging, module API, roadmap
+
+**What changed:**
+- `docs/` renamed → `dev-docs/` (git mv; all cross-references updated)
+- `dev-docs/SYNC.md` — stale `hledger/` refs fixed to `PyLedger/`; human-docs
+  sync rule added
+- `dev-docs/api-spec.md` — all `pyLedger/` refs → `PyLedger/`; `Journal` report
+  methods, `load()`, `PriceDirective`, and `python -m PyLedger` usage added
+- `dev-docs/hledger-compatibility.md` — P directive and alias directive moved
+  from Undecided/Out of Scope → **In Scope (v1)**; Directives table added
+- `CLAUDE.md` — all `docs/` refs → `dev-docs/`; folder diagram corrected
+  (`pyLedger/` → `PyLedger/`, `MANIFEST.in` and `__main__.py` added, `docs/`
+  human section added); SYNC table updated; milestone archive path updated
+- `README.md` — CLI command updated to `PyLedger`; Python library example added;
+  docs table added; Contributing section with sparse-checkout command added
+- `ROADMAP.md` — all `docs/` refs → `dev-docs/`; Milestone 1 scope extended with
+  P directive, alias directive, and module-level API; `pyLedger.cli` → `PyLedger`;
+  Commodity price directives removed from backlog (now in Milestone 1)
+- `pyproject.toml` — script entry `pyLedger = "pyLedger.cli:main"` →
+  `PyLedger = "PyLedger.cli:main"`; `include = ["pyLedger*"]` → `["PyLedger*"]`
+- `MANIFEST.in` — new file; excludes `CLAUDE.md`, `CHANGELOG.md`, `ROADMAP.md`,
+  `dev-docs/` from sdist
+- `PyLedger/models.py` — `PriceDirective` dataclass added; `Journal.prices` field
+  added; four report methods added to `Journal` (lazy-import delegation to reports)
+- `PyLedger/__init__.py` — `load()` convenience function exported
+- `PyLedger/__main__.py` — new file; enables `python -m PyLedger`
+- `PyLedger/cli.py` — `prog="pyLedger"` → `prog="PyLedger"`
+- `docs/` — new human-facing documentation folder created with four guides:
+  `getting-started.md`, `usage.md`, `journal-format.md`, `python-api.md`
+
+**Human:** Directed the structural refactor: rename `docs/` to `dev-docs/`,
+create a human `docs/` folder, add sparse-checkout clone command, fix packaging
+capitalisation, add `load()` + `__main__` + Journal report methods, extend
+Milestone 1 to include P directive and alias directive.
+
+**Claude:** Executed the full plan across 18 files: git mv for the folder rename,
+updated all cross-references, created `MANIFEST.in`, added `PriceDirective` and
+Journal methods with lazy-import pattern, created `__main__.py`, and authored all
+four human guide files.
+
+---
+
+### [17207ce] — 2026-04-15 — Fix: normalise internal imports to PyLedger (capital P)
 
 **What changed:**
 - `PyLedger/parser.py` — `from pyLedger.models import` → `from PyLedger.models import`
@@ -67,7 +109,7 @@ treated as a posting regardless of indentation.
   archiving" heading clarified to match
 - `ROADMAP.md` — "Deciding What Goes Into a Milestone" step 4 updated with the
   same explicit-user-approval requirement
-- `docs/changelog/MILESTONE-0.md` — created; contains the `[0.1.0-dev.0]`
+- `dev-docs/changelog/MILESTONE-0.md` — created; contains the `[0.1.0-dev.0]`
   scaffold entry (oldest first), archive date, and commit placeholder
 - `CHANGELOG.md` — `[0.1.0-dev.0]` replaced with a single summary line linking
   to the archive file
@@ -77,7 +119,7 @@ explicitly specified by the user; confirmed Milestone 0 is complete and directed
 execution of the archiving procedure.
 
 **Claude:** Updated the rule in `CLAUDE.md` and `ROADMAP.md`, created
-`docs/changelog/` and `MILESTONE-0.md`, and replaced the dev.0 entry with a
+`dev-docs/changelog/` and `MILESTONE-0.md`, and replaced the dev.0 entry with a
 summary link.
 
 ---
@@ -256,7 +298,7 @@ implemented all helpers, and authored the test file.
 
 ### [Milestone 0 — Project Foundation] — 2026-04-15
 
-Full detail: [docs/changelog/MILESTONE-0.md](docs/changelog/MILESTONE-0.md)
+Full detail: [dev-docs/changelog/MILESTONE-0.md](dev-docs/changelog/MILESTONE-0.md)
 
 **Summary:** Established the full project scaffold, core data models, initial
 documentation suite, and developer tooling conventions that all subsequent
@@ -294,8 +336,8 @@ replace the dev tag with the actual commit hash or release version:
 When a major milestone is marked `[DONE]` in `ROADMAP.md`, all `[Unreleased]`
 entries that belong to that milestone are archived as follows:
 
-1. **Create an archive file** at `docs/changelog/MILESTONE-N.md` (e.g.
-   `docs/changelog/MILESTONE-1.md`), using this structure:
+1. **Create an archive file** at `dev-docs/changelog/MILESTONE-N.md` (e.g.
+   `dev-docs/changelog/MILESTONE-1.md`), using this structure:
 
 ```markdown
 # Changelog — Milestone N: <Milestone Title>
@@ -312,7 +354,7 @@ GitHub commits: <hash> … <hash>
 ```markdown
 ### [Milestone N — <Title>] — YYYY-MM-DD
 
-Full detail: [docs/changelog/MILESTONE-N.md](docs/changelog/MILESTONE-N.md)
+Full detail: [dev-docs/changelog/MILESTONE-N.md](dev-docs/changelog/MILESTONE-N.md)
 
 **Summary:** One or two sentences describing what the milestone delivered.
 ```

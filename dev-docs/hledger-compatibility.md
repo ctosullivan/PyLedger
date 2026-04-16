@@ -122,6 +122,13 @@ A transaction block is the fundamental unit of a journal file.
 | Follow-on comment line | `    ; continued note` | Indented line starting with `;` inside a transaction block; silently skipped |
 | Block comment | `comment` / `end comment` | All lines between the two directives are skipped; unclosed block runs to EOF |
 
+### Directives
+
+| Feature | Syntax | Notes |
+|---|---|---|
+| P directive | `P DATE COMMODITY PRICE` | Market price declaration; stored in `Journal.prices` as `PriceDirective` objects; scope is global (all entries in all files). Reference: https://hledger.org/1.52/hledger.html#p-directive |
+| alias directive | `alias OLD=NEW` / `alias /REGEX/=REPLACEMENT` / `end aliases` | Account name rewriting; applies from directive to `end aliases` or file end; backreferences (`\1`) supported in regex form; local to current file. Reference: https://hledger.org/1.52/hledger.html#alias-directive |
+
 ---
 
 ## Out of Scope (v1)
@@ -149,7 +156,6 @@ feature below.
 
 ## Undecided / Future
 
-- Commodity price directives (`P 2024-01-01 EUR 1.10 USD`)
 - Multiple commodities in one transaction
 - Strict mode (unbalanced transaction detection)
 - Account type inference from name prefixes (`assets`, `liabilities`, etc.)

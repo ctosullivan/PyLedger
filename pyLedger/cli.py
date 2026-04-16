@@ -17,7 +17,7 @@ COMMANDS = ("balance", "register", "accounts", "print", "stats")
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="pyLedger",
+        prog="PyLedger",
         description="Plain-text accounting (hledger-compatible)",
     )
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
