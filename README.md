@@ -76,6 +76,10 @@ hledger journal features are supported in v1.
 
 ## Contributing
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for pull request guidelines, commit
+message format, and branch naming. This project follows the
+[Contributor Code of Conduct](CODE_OF_CONDUCT.md).
+
 ### With AI tooling (Claude Code)
 
 Clone the full repository including AI-workflow files:

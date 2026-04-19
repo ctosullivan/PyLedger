@@ -152,6 +152,22 @@ response**:
 See the "Archiving at milestone completion" section in `CHANGELOG.md` for the
 exact file format and templates.
 
+### Commit Message Format
+
+When producing a commit message, follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>: <short summary>
+```
+
+**Types:** `feat`, `fix`, `docs`, `test`, `style`, `refactor`, `chore`
+
+Rules:
+- Imperative mood ("add feature" not "added feature")
+- Summary under 72 characters
+- No period at end of summary
+- Blank line + body for complex changes
+
 ---
 
 ## Folder Structure (do not change without approval)

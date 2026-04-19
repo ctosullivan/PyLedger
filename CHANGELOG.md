@@ -17,6 +17,36 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — chore: switch to stable setuptools build backend
+
+**Human:** Update `pyproject.toml` to use `setuptools.build_meta` and drop the version pin on `setuptools`.
+**Claude:** Replaced `setuptools.backends.legacy:build` with `setuptools.build_meta` and changed `requires` from `["setuptools>=68"]` to `["setuptools"]`.
+
+---
+
+### [Unreleased] — Project: add CONTRIBUTING.md and CODE_OF_CONDUCT.md
+
+**What changed:**
+- `CONTRIBUTING.md` added at project root (moved from `PyLedger/` subfolder);
+  title corrected from "hledger-textual" to "PyLedger"; test command updated
+  from `uv run pytest` to `python -m unittest tests.test_parser -v`
+- `CODE_OF_CONDUCT.md` added at project root (moved from `PyLedger/` subfolder)
+- `README.md` — Contributing section updated with brief reference to
+  `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`
+- `CLAUDE.md` — Commit Message Format subsection added under Changelog & Roadmap
+  Rules; specifies Conventional Commits standard with types, imperative mood,
+  72-char limit, no trailing period, blank line + body for complex changes
+
+**Human:** Added `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`; directed that
+contribution guidelines should be referenced briefly in README and that Claude
+should follow the commit message format defined in CONTRIBUTING.md.
+
+**Claude:** Moved both files to project root; corrected project name and test
+command in CONTRIBUTING.md; updated README.md Contributing section; added commit
+message format rule to CLAUDE.md.
+
+---
+
 ### [Unreleased] — Docs: correct P directive scope description
 
 **What changed:**
