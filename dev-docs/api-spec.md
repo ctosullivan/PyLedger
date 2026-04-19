@@ -236,20 +236,36 @@ def accounts(journal: Journal) -> list[str]:
 
 ---
 
-### `stats` `[STUB — Milestone 2]`
+### `stats` `[IMPLEMENTED]`
 
 ```python
 @dataclass
 class JournalStats:
+    """Summary statistics for a journal. No runtime fields — CLI measures those."""
     source_file: str | None
+    included_files: int              # 0 until include directive is implemented
     transaction_count: int
+    date_range: tuple[datetime.date, datetime.date] | None   # (first, last)
+    last_txn_date: datetime.date | None
+    last_txn_days_ago: int | None    # (today - last_txn_date).days
+    txns_span_days: int | None       # (last - first).days + 1
+    txns_per_day: float              # transaction_count / txns_span_days, else 0.0
+    txns_last_30_days: int
+    txns_per_day_last_30: float
+    txns_last_7_days: int
+    txns_per_day_last_7: float
+    payee_count: int                 # unique descriptions
     account_count: int
-    date_range: tuple[datetime.date, datetime.date] | None  # (first, last)
+    account_depth: int               # max colon-segment depth across all accounts
     commodity_count: int
+    commodities: list[str]           # sorted commodity symbols
+    price_count: int                 # len(journal.prices)
 
 def stats(journal: Journal) -> JournalStats:
     """Return summary statistics for the journal."""
 ```
+
+Also accessible as `PyLedger.JournalStats` (re-exported from `__init__.py`).
 
 ---
 
@@ -272,8 +288,13 @@ def main(argv: list[str] | None = None) -> int:
 CLI interface (via `pyproject.toml` `[project.scripts]` and `PyLedger/__main__.py`):
 
 ```
-PyLedger <command> [options] <journal-file>
-python -m PyLedger <command> [options] <journal-file>
+PyLedger [-v] [-1] [-o FILE] <command> <journal-file>
+python -m PyLedger [-v] [-1] [-o FILE] <command> <journal-file>
+
+Flags:
+  -v, --verbose      More detailed output (stats: show commodity names)
+  -1                 Single tab-separated line (stats only)
+  -o, --output-file  Write output to FILE instead of stdout
 
 Commands:
   balance    Print account balances

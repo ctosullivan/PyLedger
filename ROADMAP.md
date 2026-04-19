@@ -113,6 +113,9 @@ Items not scheduled for a milestone yet. Promote to a milestone when prioritised
 | Account type inference | Infer assets/liabilities/income/expenses from name prefix |
 | Periodic/auto postings | Out of scope for v1 |
 | Secondary dates | `2024-01-15=2024-01-20` |
+| `stats`: peak live memory (`X MB live`) | Requires `psutil` (third-party) or platform-specific syscall; not in scope without user approval of the dependency |
+| `stats`: peak allocated memory (`X MB alloc`) | Implementable via stdlib `tracemalloc`; deferred to keep scope small |
+| `stats`: per-reporting-interval output | Show stats broken down by week/month/year; needs date-interval logic |
 
 ---
 

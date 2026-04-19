@@ -9,6 +9,10 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PyLedger.reports import JournalStats
 
 
 @dataclass
@@ -105,7 +109,7 @@ class Journal:
         from PyLedger.reports import accounts as _accounts
         return _accounts(self)
 
-    def stats(self):
+    def stats(self) -> JournalStats:
         """Return a JournalStats object with summary statistics."""
         from PyLedger.reports import stats as _stats
         return _stats(self)

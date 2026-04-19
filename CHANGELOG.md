@@ -17,6 +17,30 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — chore: release v0.1.1
+
+**Human:** Bump version to v0.1.1.
+**Claude:** Updated `version` in `PyLedger/__init__.py` and `pyproject.toml` from `0.1.0` to `0.1.1`.
+
+---
+
+### [Unreleased] — feat: implement `stats` report (full hledger 1.52 spec)
+
+**Human:** Implement the `stats` command matching the full hledger 1.52 spec,
+including `-v`/`--verbose`, `-1`, and `-o`/`--output-file` flags; add roadmap
+items for unimplementable features (memory stats, reporting interval).
+
+**Claude:** Expanded `JournalStats` to 18 fields (included files, last txn,
+span days, per-day rates, last-7/30 days, payee count, account depth, commodity
+list, price count); implemented `reports.stats()`; rewrote CLI stats block with
+runtime timing and all three flags; added `TYPE_CHECKING` guard and return type
+to `Journal.stats()` in models.py; re-exported `JournalStats` from
+`PyLedger.__init__`; added 30 tests in `tests/test_reports.py`; updated
+`dev-docs/api-spec.md` (status → `[IMPLEMENTED]`, expanded dataclass, CLI flags);
+added three roadmap items to `ROADMAP.md`.
+
+---
+
 ### [Unreleased] — chore: switch to stable setuptools build backend
 
 **Human:** Update `pyproject.toml` to use `setuptools.build_meta` and drop the version pin on `setuptools`.
