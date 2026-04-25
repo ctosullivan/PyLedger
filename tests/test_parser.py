@@ -1,22 +1,25 @@
-"""Tests for pyLedger.parser — parse_string and parse_file."""
+"""Tests for PyLedger.parser — parse_string."""
 
 import datetime
 import os
+import pathlib
 import unittest
 from decimal import Decimal
 
 from PyLedger.models import Amount, Journal, Posting, Transaction
-from PyLedger.parser import ParseError, parse_file, parse_string
+from PyLedger.parser import ParseError, parse_string
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 SAMPLE_JOURNAL = os.path.join(FIXTURES, "sample.journal")
 
 
 class TestParseStringSampleJournal(unittest.TestCase):
-    """Test 1: parse the full sample.journal end-to-end."""
+    """Test 1: parse the full sample.journal end-to-end via parse_string."""
 
     def setUp(self):
-        self.journal = parse_file(SAMPLE_JOURNAL)
+        self.journal = parse_string(
+            pathlib.Path(SAMPLE_JOURNAL).read_text(encoding="utf-8")
+        )
 
     def test_transaction_count(self):
         self.assertEqual(len(self.journal.transactions), 5)
@@ -42,9 +45,6 @@ class TestParseStringSampleJournal(unittest.TestCase):
         ]
         actual = [t.description for t in self.journal.transactions]
         self.assertEqual(actual, expected)
-
-    def test_source_file_set(self):
-        self.assertEqual(self.journal.source_file, SAMPLE_JOURNAL)
 
 
 class TestStatusFlags(unittest.TestCase):
@@ -336,48 +336,6 @@ class TestSimpleDateFormats(unittest.TestCase):
                 "    expenses:food  £10.00\n"
                 "    assets:bank  -£10.00\n"
             )
-
-
-class TestUnsupportedFileExtension(unittest.TestCase):
-    """Test 11: parse_file raises ParseError for unsupported extensions."""
-
-    def test_csv_extension_raises(self):
-        with self.assertRaises(ParseError) as ctx:
-            parse_file("myfile.csv")
-        self.assertIn("unsupported file format", str(ctx.exception))
-
-    def test_timeclock_extension_raises(self):
-        with self.assertRaises(ParseError) as ctx:
-            parse_file("myfile.timeclock")
-        self.assertIn("unsupported file format", str(ctx.exception))
-
-    def test_j_alias_raises(self):
-        """hledger accepts .j as a journal alias; PyLedger does not."""
-        with self.assertRaises(ParseError) as ctx:
-            parse_file("myfile.j")
-        self.assertIn("unsupported file format", str(ctx.exception))
-
-    def test_journal_extension_accepted(self):
-        """parse_file should not raise for a .journal file that exists."""
-        parse_file(SAMPLE_JOURNAL)  # raises only if file missing or parse fails
-
-    def test_ledger_extension_accepted(self):
-        """parse_file should accept a .ledger file (same format as .journal)."""
-        import tempfile, textwrap
-        content = textwrap.dedent("""\
-            2024-01-05 Salary
-                assets:bank  £100.00
-                income:salary  -£100.00
-        """)
-        with tempfile.NamedTemporaryFile(suffix=".ledger", mode="w",
-                                         encoding="utf-8", delete=False) as f:
-            f.write(content)
-            tmp = f.name
-        try:
-            journal = parse_file(tmp)
-            self.assertEqual(len(journal.transactions), 1)
-        finally:
-            os.unlink(tmp)
 
 
 if __name__ == "__main__":

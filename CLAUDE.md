@@ -116,6 +116,28 @@ retroactively if editing a file that already contains undocumented regexes.
 
 ---
 
+## Module Size & Refactoring
+
+When a module (`PyLedger/*.py`) or test file (`tests/test_*.py`) approaches or exceeds
+**300–500 lines**, or is handling more than one clear responsibility, it is a signal that
+a refactor should be considered.
+
+Claude must **never initiate a major refactor unilaterally**. The process is:
+
+1. **Flag the concern** — note the file, its current line count, and the responsibilities
+   that appear to have accumulated.
+2. **Propose a split** — describe the suggested sub-modules or reorganisation (new file
+   names, what moves where).
+3. **Wait for explicit approval** — do not move or rewrite any code until the user confirms
+   the proposal.
+
+This applies equally to production modules and test files.
+
+> A "major refactor" means moving, splitting, or substantially reorganising code across
+> files. Routine tidying within a single function does not require approval.
+
+---
+
 ## Hledger Compatibility
 
 - Consult `dev-docs/hledger-compatibility.md` before implementing any parser feature

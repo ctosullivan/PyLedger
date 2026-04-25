@@ -4,7 +4,8 @@ import datetime
 import os
 import unittest
 
-from PyLedger.parser import parse_string, parse_file
+from PyLedger.loader import load_journal
+from PyLedger.parser import parse_string
 from PyLedger.reports import stats, JournalStats
 
 
@@ -16,7 +17,7 @@ class TestStatsSampleJournal(unittest.TestCase):
     """stats() against tests/fixtures/sample.journal."""
 
     def setUp(self):
-        self.journal = parse_file(SAMPLE_JOURNAL)
+        self.journal = load_journal(SAMPLE_JOURNAL)
         self.s = stats(self.journal)
 
     def test_transaction_count(self):
@@ -195,7 +196,7 @@ class TestStatsModuleLevel(unittest.TestCase):
     """journal.stats() (method on Journal) returns same result as reports.stats()."""
 
     def test_module_level_call(self):
-        journal = parse_file(SAMPLE_JOURNAL)
+        journal = load_journal(SAMPLE_JOURNAL)
         via_function = stats(journal)
         via_method = journal.stats()
         self.assertEqual(via_function.transaction_count, via_method.transaction_count)

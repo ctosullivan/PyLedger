@@ -64,8 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        from PyLedger.parser import parse_file
-        journal = parse_file(args.journal)
+        from PyLedger.loader import load_journal
+        journal = load_journal(args.journal)
     except FileNotFoundError:
         print(f"pyLedger: file not found: {args.journal}", file=sys.stderr)
         return 1

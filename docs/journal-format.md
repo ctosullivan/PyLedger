@@ -131,19 +131,67 @@ as an amount (e.g. `$179.00`).
 ## Include Directive (Multiple Files)
 
 Embeds the contents of another journal file at the point of the directive, as
-if the entries were written inline.
+if the entries were written inline. Includes are processed recursively.
 
 ```
 include accounts.journal
 include ../shared/prices.journal
+include ~/main.journal
+include /home/user/finances.journal
+include reports/*.journal
+include **.journal
 ```
 
 Syntax: `include PATH`
 
-Paths are relative to the file containing the directive. Only `.journal` and
-`.ledger` files may be included; other extensions raise a `ParseError`. Active
-directives (such as `alias`) at the point of the `include` apply to the
-included file's entries.
+### Path resolution
+
+| Path form | Resolution |
+|---|---|
+| `relative/path.journal` | Relative to the containing file's directory |
+| `/absolute/path.journal` | Used as-is |
+| `~/path.journal` | Tilde expanded to the home directory |
+| `glob_*.journal` | Glob-expanded (see below) |
+
+### Glob patterns
+
+Glob characters `*`, `**`, `?`, and `[range]` are supported:
+
+- `*` — matches any sequence of characters that are not path separators
+- `**` — matches zero or more subdirectories and/or filename prefix characters
+- `?` — matches any single character
+- `[a-z]` — matches any character in the given range
+
+Examples:
+
+```
+; Include all .journal files in the current directory
+include *.journal
+
+; Include all .journal files in this directory tree
+include **.journal
+
+; Include year-named files
+include 202?.journal
+```
+
+The containing file is **always excluded** from glob results, even if the
+pattern would match it.
+
+A glob pattern that matches no files raises a `ParseError`.
+
+### Format prefixes
+
+Format prefixes (e.g. `timedot:`, `csv:`) are **not supported** in PyLedger v1.
+Using them raises a `ParseError`. Remove the prefix and ensure the file has a
+`.journal` or `.ledger` extension.
+
+### Restrictions
+
+Only `.journal` and `.ledger` files may be included; other extensions raise a
+`ParseError`. Circular includes (A includes B which includes A) raise a
+`ParseError`. Active directives (such as `alias`) at the point of the
+`include` apply to the included file's entries.
 
 ---
 

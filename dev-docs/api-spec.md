@@ -12,13 +12,16 @@ Status key: `[IMPLEMENTED]` · `[STUB — Milestone 2]` · `[PLANNED]`
 def load(path: str | os.PathLike) -> Journal:
     """Load a .journal or .ledger file and return a Journal object.
 
-    Alias for parse_file(). Intended for programmatic use:
+    Alias for loader.load_journal(). Supports include directives.
+    Intended for programmatic use:
         import PyLedger
         journal = PyLedger.load("myfile.journal")
 
     Raises:
-        FileNotFoundError: if the path does not exist.
-        ParseError: if the extension is unsupported or the file is malformed.
+        FileNotFoundError: if the path or a non-glob included file does not exist.
+        ParseError: if an extension is unsupported, a format prefix is used,
+                    a circular include is detected, a glob matches nothing,
+                    or the file contents are malformed.
     """
 ```
 
@@ -123,9 +126,13 @@ class Journal:
     transactions: list[Transaction]
     prices: list[PriceDirective] = field(default_factory=list)
     source_file: str | None = None
+    included_files: int = 0   # count of distinct files pulled in via include
 ```
 
 Top-level container for all parsed journal data.
+
+`included_files` is set by `loader.load_journal()`. When `parse_string()` is
+called directly (no file I/O), it remains `0`.
 
 **Report methods** (delegate to `PyLedger.reports` via lazy import):
 
@@ -172,21 +179,41 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
 
 ---
 
-### `parse_file` `[IMPLEMENTED]`
+---
+
+## `PyLedger/loader.py`
+
+### `load_journal` `[IMPLEMENTED]`
 
 ```python
-def parse_file(path: str | os.PathLike) -> Journal:
-    """Read a .journal or .ledger file from disk and return a Journal object.
+def load_journal(path: str | os.PathLike) -> Journal:
+    """Load a .journal or .ledger file and return a Journal object.
 
-    Supported extensions: .journal, .ledger
-    See dev-docs/hledger-compatibility.md for the full format support matrix.
+    Handles include directives recursively. Included files are expanded at
+    the point of the directive before parsing, preserving directive scope
+    (e.g. an alias active before an include applies to included content).
+
+    Path resolution in include directives:
+      - ~/...       tilde expanded to the home directory
+      - /abs/path   used as-is (absolute)
+      - relative    resolved relative to the containing file's directory
+      - Globs (* ** ? [range]) expanded via glob.glob; the containing file
+        is always excluded from results.
+
+    Populates journal.source_file (absolute path string) and
+    journal.included_files (count of distinct included files).
 
     Raises:
-        FileNotFoundError: if the path does not exist.
-        ParseError: if the extension is not supported, or if the file
-                    contents are not valid hledger journal syntax.
+        FileNotFoundError: if the root path or a non-glob included file
+            does not exist.
+        ParseError: if an extension is unsupported, a format prefix is
+            used (e.g. timedot:), a circular include is detected, a glob
+            matches no files, or the file contents are malformed.
     """
 ```
+
+> **Note:** `parse_file()` was removed in this milestone. Use `load_journal()`
+> (or the `PyLedger.load` alias) for all file loading.
 
 ---
 
@@ -243,7 +270,7 @@ def accounts(journal: Journal) -> list[str]:
 class JournalStats:
     """Summary statistics for a journal. No runtime fields — CLI measures those."""
     source_file: str | None
-    included_files: int              # 0 until include directive is implemented
+    included_files: int              # count of distinct files pulled in via include
     transaction_count: int
     date_range: tuple[datetime.date, datetime.date] | None   # (first, last)
     last_txn_date: datetime.date | None

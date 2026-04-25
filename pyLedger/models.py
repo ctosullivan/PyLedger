@@ -78,6 +78,7 @@ class Journal:
     transactions: list[Transaction] = field(default_factory=list)
     prices: list[PriceDirective] = field(default_factory=list)
     source_file: str | None = None
+    included_files: int = 0
 
     # ------------------------------------------------------------------
     # Report methods — thin wrappers that delegate to PyLedger.reports.

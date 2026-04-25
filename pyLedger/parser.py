@@ -8,7 +8,6 @@ the list of supported format features.
 from __future__ import annotations
 
 import datetime
-import os
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -400,29 +399,3 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
     return Journal(transactions=transactions)
 
 
-_SUPPORTED_EXTENSIONS = {".journal", ".ledger"}
-
-
-def parse_file(path: str | os.PathLike) -> Journal:
-    """Read a .journal or .ledger file from disk and return a Journal object.
-
-    Supported extensions: .journal, .ledger
-    See docs/hledger-compatibility.md for the full format support matrix.
-
-    Raises:
-        FileNotFoundError: if the path does not exist.
-        ParseError: if the file extension is not supported, or if the file
-                    contents are not valid hledger journal syntax.
-    """
-    path = os.fspath(path)
-    _, ext = os.path.splitext(path)
-    if ext.lower() not in _SUPPORTED_EXTENSIONS:
-        supported = ", ".join(sorted(_SUPPORTED_EXTENSIONS))
-        raise ParseError(
-            f"unsupported file format {ext!r} — PyLedger accepts: {supported}"
-        )
-    with open(path, encoding="utf-8") as fh:
-        text = fh.read()
-    journal = parse_string(text)
-    journal.source_file = path
-    return journal

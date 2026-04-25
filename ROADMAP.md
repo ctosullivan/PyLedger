@@ -31,37 +31,38 @@ Implement a working parser so that `.journal` files can be loaded into memory as
 `Journal` objects, including key hledger directives.
 
 **Scope:**
-- `parse_string(text) -> Journal` and `parse_file(path) -> Journal`
-- `ParseError` with line-number context
-- Transaction header parsing (date, flag, code, description, comment)
+- `parse_string(text) -> Journal` — pure text parser ✅
+- `load_journal(path) -> Journal` — file loader with include support (in `loader.py`) ✅
+- `ParseError` with line-number context ✅
+- Transaction header parsing (date, flag, code, description, comment) ✅
 - Posting parsing (prefix/suffix commodity, thousands separator, elided amount,
-  double-space separator rule)
+  double-space separator rule) ✅
 - Simple date formats: all three separators (`-`, `/`, `.`), optional leading
-  zeros, year-omitted with inference
-- Block comments (`comment` / `end comment` directive)
+  zeros, year-omitted with inference ✅
+- Block comments (`comment` / `end comment` directive) ✅
 - **P directive** (`P DATE COMMODITY PRICE`) — market price declarations stored
-  in `Journal.prices` as `PriceDirective` objects
+  in `Journal.prices` as `PriceDirective` objects ✅
 - **alias directive** (`alias OLD=NEW` / `alias /REGEX/=REPLACEMENT` /
-  `end aliases`) — account names rewritten at parse time within the current file
+  `end aliases`) — account names rewritten at parse time within the current file ✅
 - **include directive** (`include other.journal`) — embeds entries and directives
-  from another `.journal` or `.ledger` file inline; only those two extensions
-  accepted (other extensions raise `ParseError`)
+  from another `.journal` or `.ledger` file inline; relative, absolute, tilde,
+  and glob paths supported; circular include detection; format-prefix rejection ✅
 - Module-level API: `Journal` report methods (`.balance()`, `.register()`,
   `.accounts()`, `.stats()`); `PyLedger.load()` convenience function;
-  `python -m PyLedger` entry point
-- Regex documentation rule enforced on all patterns
+  `python -m PyLedger` entry point ✅
+- Regex documentation rule enforced on all patterns ✅
 - `dev-docs/hledger-compatibility.md` updated with transaction block structure,
-  P directive, and alias directive
+  P directive, alias directive, and include directive ✅
 
 **Exit criteria:**
-- `python -m unittest tests.test_parser -v` — all tests pass
+- `python -m unittest tests.test_parser tests.test_reports tests.test_loader -v` — all tests pass ✅
 - `python -m PyLedger print tests/fixtures/sample.journal` outputs all
-  5 transactions correctly
-- P directives parsed and stored in `journal.prices`
+  5 transactions correctly ✅
+- P directives parsed and stored in `journal.prices` ✅
 - Account aliases applied correctly against a fixture covering both simple and
-  regex alias forms
-- `include` directive resolves relative paths; included file entries appear in
-  the resulting `Journal` as if written inline
+  regex alias forms ✅
+- `include` directive resolves relative, absolute, tilde, and glob paths;
+  included file entries appear in the resulting `Journal` as if written inline ✅
 
 ---
 

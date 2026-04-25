@@ -17,6 +17,28 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — chore: release v0.1.2
+
+**Human:** Update version number to 0.1.2.
+**Claude:** Updated `version` in `PyLedger/__init__.py` and `pyproject.toml` from `0.1.1` to `0.1.2`.
+
+---
+
+### [Unreleased] — feat: add loader.py module and implement include directive
+
+**Human:** Implement a file loader in a separate module and implement the `include` directive (full hledger 1.52 spec). This is a major upgrade — refactor as necessary, update dev-docs/user docs, and update the public API.
+
+**Claude:** Extracted all file I/O into a new `PyLedger/loader.py` module (`load_journal()`). Implemented the `include` directive with text-expansion strategy: relative/absolute/tilde paths, glob patterns (`*`, `**`, `?`, `[range]`), recursive expansion, circular include detection, format-prefix rejection, and `FileNotFoundError` for missing non-glob targets. Added `Journal.included_files: int = 0` field to models.py. Removed `parse_file()` and `_SUPPORTED_EXTENSIONS` from parser.py (pure text-only module). Updated `PyLedger.load` alias, cli.py, reports.py. Added 10 fixture files and 40+ tests in `tests/test_loader.py`. Updated architecture.md, api-spec.md, hledger-compatibility.md, journal-format.md, python-api.md, and ROADMAP.md. All 102 tests pass.
+
+---
+
+### [Unreleased] — docs: add module size & refactoring guidelines to CLAUDE.md
+
+**Human:** Add a rule to CLAUDE.md that flags modules/tests exceeding 300–500 lines or handling too many responsibilities, and requires explicit user approval before any major refactor.
+**Claude:** Added a new `## Module Size & Refactoring` section to `CLAUDE.md` after `## Code Style`, defining the size threshold, the three-step flag-propose-approve process, and clarifying that "major refactor" means cross-file reorganisation (not intra-function tidying).
+
+---
+
 ### [Unreleased] — chore: release v0.1.1
 
 **Human:** Bump version to v0.1.1.

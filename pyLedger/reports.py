@@ -33,7 +33,7 @@ class JournalStats:
     """
 
     source_file: str | None
-    included_files: int  # 0 until include directive is implemented
+    included_files: int
     transaction_count: int
     date_range: tuple[datetime.date, datetime.date] | None  # (first, last)
     last_txn_date: datetime.date | None
@@ -110,7 +110,7 @@ def stats(journal: Journal) -> JournalStats:
 
     return JournalStats(
         source_file=journal.source_file,
-        included_files=0,
+        included_files=journal.included_files,
         transaction_count=len(txns),
         date_range=date_range,
         last_txn_date=last_txn_date,

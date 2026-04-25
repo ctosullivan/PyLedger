@@ -14,15 +14,19 @@ journal = PyLedger.load("myfile.journal")
 ```
 
 `PyLedger.load()` accepts `.journal` or `.ledger` files and returns a
-`Journal` object. It raises `FileNotFoundError` if the file does not exist,
-or `ParseError` if the file is malformed or uses an unsupported extension.
+`Journal` object. It fully supports the `include` directive — included files
+are resolved and expanded recursively before parsing.
 
-You can also use the lower-level parser directly:
+Raises `FileNotFoundError` if the file does not exist, or `ParseError` if
+the file is malformed, uses an unsupported extension, contains a circular
+include, or has a glob pattern that matches no files.
+
+You can also call the lower-level text parser directly (no file I/O, no
+include directive support):
 
 ```python
-from PyLedger.parser import parse_string, parse_file
+from PyLedger.parser import parse_string
 
-journal = parse_file("myfile.journal")
 journal = parse_string("2024-01-01 Test\n    assets:bank  £100\n    equity\n")
 ```
 
@@ -33,9 +37,10 @@ journal = parse_string("2024-01-01 Test\n    assets:bank  £100\n    equity\n")
 A `Journal` holds all parsed data from the file.
 
 ```python
-journal.transactions  # list[Transaction]
-journal.prices        # list[PriceDirective]  — from P directives
-journal.source_file   # str | None  — path of the loaded file
+journal.transactions   # list[Transaction]
+journal.prices         # list[PriceDirective]  — from P directives
+journal.source_file    # str | None  — absolute path of the root file
+journal.included_files # int  — count of distinct files pulled in via include
 ```
 
 ### Report methods
