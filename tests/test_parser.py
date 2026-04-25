@@ -478,5 +478,118 @@ class TestPayeeDirective(unittest.TestCase):
         self.assertEqual(j.declared_payees, ["Shop A", "Shop B"])
 
 
+# ---------------------------------------------------------------------------
+# tag directive
+# ---------------------------------------------------------------------------
+
+class TestTagDirective(unittest.TestCase):
+    def test_tag_stored(self):
+        j = parse_string("tag item-id\n")
+        self.assertEqual(j.declared_tags, ["item-id"])
+
+    def test_tag_inline_comment_stripped(self):
+        j = parse_string("tag item-id  ; identifies purchase items\n")
+        self.assertEqual(j.declared_tags, ["item-id"])
+
+    def test_tag_single_space_semicolon_kept(self):
+        # Single space before ';' is NOT the 2-space separator
+        j = parse_string("tag weird;tag\n")
+        self.assertEqual(j.declared_tags, ["weird;tag"])
+
+    def test_tag_subdirective_skipped(self):
+        text = "tag item-id\n    some subdirective\n"
+        j = parse_string(text)
+        self.assertEqual(j.declared_tags, ["item-id"])
+
+    def test_multiple_tags(self):
+        j = parse_string("tag receipt\ntag project\n")
+        self.assertEqual(j.declared_tags, ["receipt", "project"])
+
+    def test_tag_inside_block_comment_ignored(self):
+        text = "comment\ntag should-be-ignored\nend comment\n"
+        j = parse_string(text)
+        self.assertEqual(j.declared_tags, [])
+
+
+# ---------------------------------------------------------------------------
+# decimal-mark directive
+# ---------------------------------------------------------------------------
+
+class TestDecimalMarkDirective(unittest.TestCase):
+    def _simple_journal(self, amount_line: str) -> "Journal":
+        text = (
+            f"2024-01-01 Test\n"
+            f"    assets  {amount_line}\n"
+            f"    income  \n"
+        )
+        return parse_string(text)
+
+    def test_default_period_decimal(self):
+        j = parse_string("2024-01-01 T\n    a  £1,234.56\n    b\n")
+        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
+
+    def test_explicit_period_decimal(self):
+        text = "decimal-mark .\n2024-01-01 T\n    a  £1,234.56\n    b\n"
+        j = parse_string(text)
+        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
+
+    def test_comma_decimal_basic(self):
+        text = "decimal-mark ,\n2024-01-01 T\n    a  £100,50\n    b\n"
+        j = parse_string(text)
+        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("100.50"))
+
+    def test_comma_decimal_with_thousands(self):
+        text = "decimal-mark ,\n2024-01-01 T\n    a  £1.234,56\n    b\n"
+        j = parse_string(text)
+        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
+
+    def test_comma_decimal_suffix_commodity(self):
+        text = "decimal-mark ,\n2024-01-01 T\n    a  1.234,56 EUR\n    b\n"
+        j = parse_string(text)
+        p = j.transactions[0].postings[0]
+        self.assertEqual(p.amount.quantity, Decimal("1234.56"))
+        self.assertEqual(p.amount.commodity, "EUR")
+
+    def test_comma_decimal_negative(self):
+        text = "decimal-mark ,\n2024-01-01 T\n    a  £1,50\n    b  -£1,50\n"
+        j = parse_string(text)
+        self.assertEqual(j.transactions[0].postings[1].amount.quantity, Decimal("-1.50"))
+
+    def test_decimal_mark_applies_from_directive_forward(self):
+        # Postings before the directive use period-decimal, after use comma-decimal
+        text = (
+            "2024-01-01 Before\n"
+            "    a  £1,234.56\n"
+            "    b\n"
+            "\n"
+            "decimal-mark ,\n"
+            "\n"
+            "2024-01-02 After\n"
+            "    a  £1.234,56\n"
+            "    b\n"
+        )
+        j = parse_string(text)
+        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
+        self.assertEqual(j.transactions[1].postings[0].amount.quantity, Decimal("1234.56"))
+
+    def test_invalid_decimal_mark_raises(self):
+        from PyLedger.parser import ParseError
+        with self.assertRaises(ParseError):
+            parse_string("decimal-mark ;\n")
+
+    def test_decimal_mark_inside_block_comment_ignored(self):
+        # directive inside block comment must not change decimal_mark state
+        text = (
+            "comment\n"
+            "decimal-mark ,\n"
+            "end comment\n"
+            "2024-01-01 T\n"
+            "    a  £1,234.56\n"  # should still parse as period-decimal (default)
+            "    b\n"
+        )
+        j = parse_string(text)
+        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -155,6 +155,38 @@ _AMOUNT = re.compile(
     r"$"
 )
 
+# Matches an hledger amount string when `decimal-mark ,` is active (European
+# notation where comma is the decimal mark and period is the thousands separator).
+#
+# Purpose: parse amounts of the form "1.234,56" or "€1.234,56" where the
+#          convention is the reverse of the default _AMOUNT regex.  Selected
+#          by _parse_amount when decimal_mark == ",".
+#
+# Group breakdown: (mirrors _AMOUNT; only the numeric group differs)
+#   (1) (-?)                      — optional leading minus sign
+#   (2) ([^\d,.\s-]*)             — prefix commodity symbol (£, $, €, etc.)
+#   (3) ([\d.]*(?:,\d+)?)         — numeric quantity in comma-decimal form:
+#                                   zero or more digits/periods (digit-group marks)
+#                                   followed by an optional comma+decimal digits;
+#                                   periods are stripped and the comma is replaced
+#                                   with a period before Decimal conversion
+#   (4) ([A-Za-z][A-Za-z0-9]*)?   — suffix commodity symbol (EUR, USD, etc.)
+#
+# Edge cases:
+#   - "1.234,56"  → period=thousands, comma=decimal → Decimal("1234.56")
+#   - "100,50"    → no thousands separator          → Decimal("100.50")
+#   - "1.234"     → period=thousands, no decimal    → Decimal("1234")
+#   - "100"       → no separators at all            → Decimal("100")
+#   - "€1.234,56" → prefix "€" + comma-decimal numeric
+#   - "1.234,56 EUR" → suffix "EUR" style
+_AMOUNT_COMMA = re.compile(
+    r"^(-?)"
+    r"([^\d,.\s-]*)"
+    r"\s*([\d.]*(?:,\d+)?)"
+    r"\s*([A-Za-z][A-Za-z0-9]*)?"
+    r"$"
+)
+
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -205,13 +237,22 @@ def _parse_txn_header(line: str, lineno: int, default_year: int) -> Transaction:
     )
 
 
-def _parse_amount(raw: str, lineno: int) -> Amount:
+def _parse_amount(raw: str, lineno: int, decimal_mark: str = ".") -> Amount:
     """Parse a raw amount string into an Amount.
 
     Supports prefix commodity (£30.00), suffix commodity (30.00 EUR),
-    negative amounts (-£5.00, -30.00 EUR), and thousands separators (1,234.56).
+    negative amounts (-£5.00, -30.00 EUR), and digit-group separators.
+
+    When decimal_mark is "." (default), commas are treated as thousands
+    separators and periods as decimal marks (e.g. 1,234.56).
+    When decimal_mark is ",", periods are thousands separators and commas
+    are decimal marks (e.g. 1.234,56).
     """
-    m = _AMOUNT.match(raw.strip())
+    if decimal_mark == ",":
+        m = _AMOUNT_COMMA.match(raw.strip())
+    else:
+        m = _AMOUNT.match(raw.strip())
+
     if not m:
         raise ParseError(f"invalid amount: {raw!r}", lineno)
 
@@ -221,8 +262,13 @@ def _parse_amount(raw: str, lineno: int) -> Amount:
     if not commodity:
         raise ParseError(f"amount has no commodity symbol: {raw!r}", lineno)
 
-    # Strip thousands commas before converting
-    quantity_clean = quantity_str.replace(",", "")
+    if decimal_mark == ",":
+        # Period is the digit-group mark; comma is the decimal mark.
+        quantity_clean = quantity_str.replace(".", "").replace(",", ".")
+    else:
+        # Comma is the digit-group mark; period is the decimal mark (default).
+        quantity_clean = quantity_str.replace(",", "")
+
     try:
         quantity = Decimal(minus + quantity_clean)
     except InvalidOperation:
@@ -312,11 +358,13 @@ def _extract_commodity_symbol(raw: str, lineno: int) -> str:
     return ""
 
 
-def _parse_posting(line: str, lineno: int) -> Posting:
+def _parse_posting(line: str, lineno: int, decimal_mark: str = ".") -> Posting:
     """Parse a single posting line (already stripped of leading whitespace).
 
     Splits on two-or-more whitespace to separate account from amount.
     If no amount token is present the posting is elided (amount=None).
+    decimal_mark controls how the amount's numeric portion is interpreted
+    ("." = period-decimal default; "," = comma-decimal / EU style).
     """
     # Purpose: split the posting line into (account, amount) on the first run
     #          of two or more whitespace characters.  hledger requires at least
@@ -350,7 +398,11 @@ def _parse_posting(line: str, lineno: int) -> Posting:
     if not amount_raw:
         return Posting(account=account, amount=None, source_line=lineno)
 
-    return Posting(account=account, amount=_parse_amount(amount_raw, lineno), source_line=lineno)
+    return Posting(
+        account=account,
+        amount=_parse_amount(amount_raw, lineno, decimal_mark),
+        source_line=lineno,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +434,8 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
     declared_accounts: list[str] = []
     declared_commodities: list[str] = []
     declared_payees: list[str] = []
+    declared_tags: list[str] = []
+    decimal_mark: str = "."  # updated by decimal-mark directive
     current_txn: Transaction | None = None
     in_block_comment = False
     in_subdirective = False  # True while consuming indented subdirective lines
@@ -562,6 +616,51 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             in_subdirective = True
             continue
 
+        # --- tag directive ---
+        #
+        # Purpose: record a declared tag name for strict-mode / tag checking.
+        #          TAGNAME follows the keyword with no spaces. Inline comments
+        #          are stripped using the 2-space separator rule. Indented
+        #          subdirectives are consumed silently via in_subdirective.
+        #
+        # Edge cases:
+        #   - "tag item-id  ; note" → tag name is "item-id"
+        #   - "tags" does not match because \s+ requires whitespace after
+        #     the exact word "tag"
+        if not line[0:1].isspace() and re.match(r"^tag\s+", line):
+            body = line[len("tag"):].lstrip()
+            tag_name = _strip_directive_comment(body)
+            if tag_name:
+                declared_tags.append(tag_name)
+            in_subdirective = True
+            continue
+
+        # --- decimal-mark directive ---
+        #
+        # Purpose: declare which character is the decimal mark for amount
+        #          parsing in this file. Affects all postings from this point
+        #          forward (typically placed at the top of file).
+        #          Only "." (default) and "," are valid values.
+        #
+        # Edge cases:
+        #   - "decimal-mark ." → default; no change to behaviour
+        #   - "decimal-mark ,"  → commas are decimal marks; periods are
+        #     digit-group marks (e.g. 1.234,56 = 1234.56)
+        #   - Any other value raises ParseError
+        #   - No subdirectives are defined for decimal-mark; in_subdirective
+        #     is NOT set (nothing to consume)
+        if not line[0:1].isspace() and re.match(r"^decimal-mark(\s|$)", line):
+            rest = line[len("decimal-mark"):].strip()
+            dm = _strip_directive_comment(rest)
+            if dm not in (".", ","):
+                raise ParseError(
+                    f"decimal-mark must be '.' or ',',"
+                    f" got {dm!r}",
+                    lineno,
+                )
+            decimal_mark = dm
+            continue
+
         # --- Posting line ---
         #
         # Posting lines are conventionally written with 2+ leading spaces or a
@@ -578,7 +677,7 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
         if current_txn is None and (line.startswith("  ") or line.startswith("\t")):
             raise ParseError("posting found outside a transaction block", lineno)
         if current_txn is not None:
-            posting = _parse_posting(stripped, lineno)
+            posting = _parse_posting(stripped, lineno, decimal_mark)
             # Enforce at-most-one elided amount per block
             if posting.amount is None:
                 elided = [p for p in current_txn.postings if p.amount is None]
@@ -600,6 +699,7 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
         declared_accounts=declared_accounts,
         declared_commodities=declared_commodities,
         declared_payees=declared_payees,
+        declared_tags=declared_tags,
     )
 
 

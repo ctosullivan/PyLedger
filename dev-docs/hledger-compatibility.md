@@ -132,6 +132,8 @@ A transaction block is the fundamental unit of a journal file.
 | account directive | `account assets:bank:checking` | **[IMPLEMENTED]** Declares an account name. Stored in `Journal.declared_accounts`. Inline comments (2-space + `;`) and Ledger-style indented subdirectives are stripped. Used by `check accounts` / `-s`. Account types (`type:` tag), display ordering, and tag propagation are deferred. Reference: https://hledger.org/1.52/hledger.html#account-directive |
 | commodity directive | `commodity $1,000.00` / `commodity EUR` | **[IMPLEMENTED]** Declares a commodity symbol. Symbol extracted from sample amount (prefix `$`, suffix `EUR`) or bare token. Quoted symbols (`"AAPL 2023"`) supported. Indented `format` subdirectives consumed and ignored. Stored in `Journal.declared_commodities`. Used by `check commodities` / `-s`. Commodity display style and decimal-mark inference are deferred. Reference: https://hledger.org/1.52/hledger.html#commodity-directive |
 | payee directive | `payee Whole Foods` | **[IMPLEMENTED]** Declares a payee name. Inline comments stripped with 2-space rule. Quoted names (`payee ""`) supported. Stored in `Journal.declared_payees`. Used by `check payees`. Reference: https://hledger.org/1.52/hledger.html#payee-directive |
+| tag directive | `tag TAGNAME` | **[IMPLEMENTED]** Declares a tag name. Stored in `Journal.declared_tags`. Inline comments stripped with the 2-space rule. Indented subdirectives consumed and ignored. Used by `check tags` — deferred until inline tag-comment parsing is implemented. Reference: https://hledger.org/1.52/hledger.html#tag-directive |
+| decimal-mark directive | `decimal-mark .` / `decimal-mark ,` | **[IMPLEMENTED]** Declares the decimal mark for amount parsing from this point forward in the file. Default is `.` (period). Setting `,` enables EU-style amounts where `.` = thousands separator and `,` = decimal mark (e.g. `1.234,56` → `1234.56`). Raises `ParseError` for any character other than `.` or `,`. Reference: https://hledger.org/1.52/hledger.html#decimal-mark-directive |
 
 ### Validation / Checks
 
@@ -162,9 +164,9 @@ feature below.
 | Auto postings | `= expenses:food` rules | `ParseError` |
 | Periodic transactions | `~ monthly` | `ParseError` |
 | Timeclock entries | `i`, `o`, `b`, `h` records | `ParseError` |
-| Decimal comma | `1.234,56` (EU style) | Not supported — `ParseError` |
+| Decimal comma | `1.234,56` (EU style) | **Supported** via `decimal-mark ,` directive — amounts parsed using comma as decimal mark |
 | Secondary dates | `2024-01-15=2024-01-20` | Secondary date ignored |
-| Tags | `; tag:value` | Silently ignored |
+| Tags | `; tag:value` | Inline tag annotations silently ignored; `tag` directive (declaring allowed tag names) is **[IMPLEMENTED]** — stored in `Journal.declared_tags` |
 | Lot prices | `10 AAPL @ $150.00` | `ParseError` |
 | Balance assertions | `assets:checking = £500` | Silently ignored |
 | Virtual postings | `(expenses:food)` or `[expenses:food]` | `ParseError` |

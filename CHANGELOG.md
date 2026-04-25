@@ -17,6 +17,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — feat: tag directive and decimal-mark directive
+
+**Human:** Implement the `tag` and `decimal-mark` directives from hledger 1.52 in PyLedger.
+
+**Claude:** Added `declared_tags: list[str]` field to `Journal` (models.py). Added `tag TAGNAME` directive parsing to `parse_string()` (parser.py) — strips inline comments with the 2-space rule, consumes indented subdirectives, stores names in `declared_tags`. Added `decimal-mark .` / `decimal-mark ,` directive parsing — switches amount parsing mode for all subsequent postings; default is period-decimal. Added `_AMOUNT_COMMA` regex for EU-style comma-decimal amounts (e.g. `1.234,56` → `Decimal("1234.56")`); `_parse_amount` and `_parse_posting` accept a `decimal_mark` parameter. Extended `merge_journals()` in `loader.py` to concatenate `declared_tags`. Added `TestTagDirective` (6 tests) and `TestDecimalMarkDirective` (8 tests) to `test_parser.py`; added `test_merge_declared_tags_concatenated` to `test_loader.py`. Updated `api-spec.md` and `hledger-compatibility.md`. Periodic transactions (`~`) remain silently ignored (out of scope).
+
+---
+
 ### [Unreleased] — feat: hledger-style strict check error output with source context
 
 **Human:** Update `-s`/`--strict` error output to match hledger behaviour: stop after the first failing account/commodity, show the source file path and line number, display the transaction context with carets underlining the problematic account or amount, and include the "Consider adding a directive" suggestion text.

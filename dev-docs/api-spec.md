@@ -130,15 +130,16 @@ class Journal:
     declared_accounts: list[str] = field(default_factory=list)
     declared_commodities: list[str] = field(default_factory=list)
     declared_payees: list[str] = field(default_factory=list)
+    declared_tags: list[str] = field(default_factory=list)
     source_file: str | None = None
     included_files: int = 0   # count of distinct files pulled in via include
 ```
 
 Top-level container for all parsed journal data.
 
-`declared_accounts`, `declared_commodities`, and `declared_payees` are populated
-by `account`, `commodity`, and `payee` directives respectively. They are used
-by the strict-mode checks in `checks.py`.
+`declared_accounts`, `declared_commodities`, `declared_payees`, and `declared_tags` are populated
+by `account`, `commodity`, `payee`, and `tag` directives respectively. The first three are used
+by the strict-mode checks in `checks.py`; `declared_tags` is reserved for the deferred `check tags`.
 
 `included_files` is set by `loader.load_journal()`. When `parse_string()` is
 called directly (no file I/O), it remains `0`.
@@ -248,8 +249,8 @@ def load_journal_stdin() -> Journal:
 def merge_journals(journals: list[Journal]) -> Journal:
     """Merge a list of Journal objects into a single Journal.
 
-    Transactions, prices, declared_accounts, declared_commodities, and
-    declared_payees are all concatenated in input order.
+    Transactions, prices, declared_accounts, declared_commodities,
+    declared_payees, and declared_tags are all concatenated in input order.
     source_file is taken from the first journal.
     included_files is the sum across all input journals.
 

@@ -484,12 +484,14 @@ class TestMergeJournalsDeclared(unittest.TestCase):
         accounts: list | None = None,
         commodities: list | None = None,
         payees: list | None = None,
+        tags: list | None = None,
     ):
         from PyLedger.models import Journal
         return Journal(
             declared_accounts=accounts or [],
             declared_commodities=commodities or [],
             declared_payees=payees or [],
+            declared_tags=tags or [],
         )
 
     def test_merge_declared_accounts_concatenated(self):
@@ -510,6 +512,12 @@ class TestMergeJournalsDeclared(unittest.TestCase):
         result = merge_journals([j1, j2])
         self.assertEqual(result.declared_payees, ["Shop A", "Shop B"])
 
+    def test_merge_declared_tags_concatenated(self):
+        j1 = self._make_journal(tags=["project"])
+        j2 = self._make_journal(tags=["type"])
+        result = merge_journals([j1, j2])
+        self.assertEqual(result.declared_tags, ["project", "type"])
+
     def test_merge_declared_fields_empty_when_none(self):
         j1 = self._make_journal()
         j2 = self._make_journal()
@@ -517,6 +525,7 @@ class TestMergeJournalsDeclared(unittest.TestCase):
         self.assertEqual(result.declared_accounts, [])
         self.assertEqual(result.declared_commodities, [])
         self.assertEqual(result.declared_payees, [])
+        self.assertEqual(result.declared_tags, [])
 
     def test_merge_single_journal_preserves_declared_fields(self):
         j = self._make_journal(accounts=["assets:bank"], commodities=["£"])

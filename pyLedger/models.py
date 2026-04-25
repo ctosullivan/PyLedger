@@ -82,6 +82,7 @@ class Journal:
     declared_accounts: list[str] = field(default_factory=list)
     declared_commodities: list[str] = field(default_factory=list)
     declared_payees: list[str] = field(default_factory=list)
+    declared_tags: list[str] = field(default_factory=list)
     source_file: str | None = None
     included_files: int = 0
 

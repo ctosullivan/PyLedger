@@ -242,6 +242,7 @@ def merge_journals(journals: list[Journal]) -> Journal:
         declared_accounts=[a for j in journals for a in j.declared_accounts],
         declared_commodities=[c for j in journals for c in j.declared_commodities],
         declared_payees=[p for j in journals for p in j.declared_payees],
+        declared_tags=[t for j in journals for t in j.declared_tags],
         source_file=journals[0].source_file,
         included_files=sum(j.included_files for j in journals),
     )
