@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import os
 import sys
 import time
+from pathlib import Path
 
 # Captured as early as possible so elapsed time includes import overhead.
 _PROGRAM_START = time.perf_counter()
@@ -17,7 +19,7 @@ _PROGRAM_START = time.perf_counter()
 from PyLedger import __version__
 
 
-COMMANDS = ("balance", "register", "accounts", "print", "stats")
+COMMANDS = ("balance", "register", "accounts", "print", "stats", "check")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -43,12 +45,76 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write output to FILE instead of stdout",
     )
     p.add_argument(
+        "-f", "--file",
+        metavar="FILE",
+        dest="files",
+        action="append",
+        help="Read data from FILE, or stdin if -. May be specified more than once.",
+    )
+    p.add_argument(
+        "-s", "--strict",
+        action="store_true",
+        help="Enable strict mode: also check that accounts and commodities are declared",
+    )
+    p.add_argument(
         "command",
         choices=COMMANDS,
         help=f"Report to run: {', '.join(COMMANDS)}",
     )
-    p.add_argument("journal", help="Path to the .journal file")
+    p.add_argument(
+        "journal",
+        nargs="*",
+        help=(
+            "Journal file (shorthand for -f; all commands except check), "
+            "or check names (check command only)"
+        ),
+    )
     return p
+
+
+def _resolve_files(args: argparse.Namespace) -> list[str]:
+    """Return the ordered list of files to load from parsed CLI arguments.
+
+    Resolution order:
+      1. ``-f``/``--file`` flags (all of them, in order given)
+      2. Positional arguments when command is not ``check`` (backward-compatible
+         shorthand for a single journal file)
+      3. ``$LEDGER_FILE`` environment variable
+      4. ``~/.hledger.journal`` if it exists
+
+    For the ``check`` command all positional arguments are treated as check names,
+    not journal files; the journal file must come from ``-f`` or the environment.
+
+    Raises:
+        SystemExit(1): if both ``-f`` and a positional file are given, or if no
+            file can be determined.
+    """
+    is_check = getattr(args, "command", None) == "check"
+    # args.journal is a list (nargs="*"); non-empty only when positionals given
+    positional_file = args.journal[0] if (args.journal and not is_check) else None
+
+    if args.files and positional_file:
+        print(
+            "pyLedger: cannot combine -f/--file flags with a positional "
+            "journal argument",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    if args.files:
+        return args.files
+    if positional_file:
+        return [positional_file]
+    env = os.environ.get("LEDGER_FILE")
+    if env:
+        return [env]
+    default = Path.home() / ".hledger.journal"
+    if default.exists():
+        return [str(default)]
+    print(
+        "pyLedger: no journal file specified; use -f FILE or set $LEDGER_FILE",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,14 +130,61 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        from PyLedger.loader import load_journal
-        journal = load_journal(args.journal)
-    except FileNotFoundError:
-        print(f"pyLedger: file not found: {args.journal}", file=sys.stderr)
+        file_list = _resolve_files(args)
+    except SystemExit as exc:
+        return int(exc.code) if exc.code is not None else 1
+
+    try:
+        from PyLedger.loader import load_journal, load_journal_stdin, merge_journals
+        from PyLedger.models import Journal
+
+        loaded: list[Journal] = []
+        for f in file_list:
+            if f == "-":
+                loaded.append(load_journal_stdin())
+            else:
+                loaded.append(load_journal(f))
+        journal = merge_journals(loaded)
+    except FileNotFoundError as exc:
+        print(f"pyLedger: file not found: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"pyLedger: {exc}", file=sys.stderr)
         return 1
+
+    # --- Default basic-check gate (runs before every command) ---
+    from PyLedger import checks as _checks
+
+    basic_errors = _checks.run_basic_checks(journal)
+    if basic_errors:
+        for e in basic_errors:
+            print(f"pyLedger: {e.message}", file=sys.stderr)
+        return 1
+
+    # --- Strict-mode checks (-s/--strict) ---
+    if args.strict:
+        strict_only = [
+            e for e in _checks.run_strict_checks(journal)
+            if e.check_name not in _checks.BASIC_CHECK_NAMES
+        ]
+        if strict_only:
+            for e in strict_only:
+                print(f"pyLedger: {e.message}", file=sys.stderr)
+            return 1
+
+    # --- check command (no output on success; errors → stderr + exit 1) ---
+    if args.command == "check":
+        check_names = args.journal  # positional args are check names for this command
+        try:
+            errors = _checks.run_checks(journal, names=list(check_names), strict=args.strict)
+        except ValueError as exc:
+            print(f"pyLedger: {exc}", file=sys.stderr)
+            return 1
+        if errors:
+            for e in errors:
+                print(f"pyLedger: {e.message}", file=sys.stderr)
+            return 1
+        return 0
 
     outfile = None
     if args.output_file:

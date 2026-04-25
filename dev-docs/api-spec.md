@@ -53,8 +53,9 @@ Represents a single monetary or commodity amount.
 ```python
 @dataclass
 class Posting:
-    account: str          # e.g. "expenses:food"
-    amount: Amount | None  # None means "infer from other postings"
+    account: str                   # e.g. "expenses:food"
+    amount: Amount | None = None   # None means "infer from other postings"
+    source_line: int | None = None # 1-based line number in source file; None for programmatic objects
 ```
 
 One line within a transaction, mapping an account to an amount.
@@ -74,10 +75,11 @@ class Transaction:
     date: datetime.date
     description: str
     postings: list[Posting]
-    cleared: bool = False   # True if marked with "*"
-    pending: bool = False   # True if marked with "!"
-    code: str = ""          # Optional transaction code in parentheses
-    comment: str = ""       # Inline or trailing comment text
+    cleared: bool = False          # True if marked with "*"
+    pending: bool = False          # True if marked with "!"
+    code: str = ""                 # Optional transaction code in parentheses
+    comment: str = ""              # Inline or trailing comment text
+    source_line: int | None = None # 1-based line number of the header in source file
 ```
 
 Represents a complete journal transaction entry.
@@ -125,11 +127,18 @@ in reports) is in scope for v1 and will be implemented in Milestone 2.
 class Journal:
     transactions: list[Transaction]
     prices: list[PriceDirective] = field(default_factory=list)
+    declared_accounts: list[str] = field(default_factory=list)
+    declared_commodities: list[str] = field(default_factory=list)
+    declared_payees: list[str] = field(default_factory=list)
     source_file: str | None = None
     included_files: int = 0   # count of distinct files pulled in via include
 ```
 
 Top-level container for all parsed journal data.
+
+`declared_accounts`, `declared_commodities`, and `declared_payees` are populated
+by `account`, `commodity`, and `payee` directives respectively. They are used
+by the strict-mode checks in `checks.py`.
 
 `included_files` is set by `loader.load_journal()`. When `parse_string()` is
 called directly (no file I/O), it remains `0`.
@@ -214,6 +223,121 @@ def load_journal(path: str | os.PathLike) -> Journal:
 
 > **Note:** `parse_file()` was removed in this milestone. Use `load_journal()`
 > (or the `PyLedger.load` alias) for all file loading.
+
+---
+
+### `load_journal_stdin` `[IMPLEMENTED]`
+
+```python
+def load_journal_stdin() -> Journal:
+    """Read a journal from stdin and return a Journal object.
+
+    Parses the full stdin contents as hledger journal text.
+    Sets source_file to "(stdin)". included_files is always 0.
+
+    Raises:
+        ParseError: if the stdin content is malformed.
+    """
+```
+
+---
+
+### `merge_journals` `[IMPLEMENTED]`
+
+```python
+def merge_journals(journals: list[Journal]) -> Journal:
+    """Merge a list of Journal objects into a single Journal.
+
+    Transactions, prices, declared_accounts, declared_commodities, and
+    declared_payees are all concatenated in input order.
+    source_file is taken from the first journal.
+    included_files is the sum across all input journals.
+
+    Raises:
+        ValueError: if journals is empty.
+    """
+```
+
+---
+
+## `PyLedger/checks.py`
+
+### `CheckError` `[IMPLEMENTED]`
+
+```python
+@dataclass
+class CheckError:
+    check_name: str   # e.g. "autobalanced", "accounts"
+    message: str      # human-readable single-line description
+```
+
+Also re-exported from `PyLedger.__init__` as `PyLedger.CheckError`.
+
+---
+
+### Check constants `[IMPLEMENTED]`
+
+```python
+BASIC_CHECK_NAMES:  tuple[str, ...] = ("parseable", "autobalanced")
+STRICT_CHECK_NAMES: tuple[str, ...] = ("accounts", "commodities")
+OTHER_CHECK_NAMES:  tuple[str, ...] = ("payees", "ordereddates", "uniqueleafnames")
+```
+
+---
+
+### Individual check functions `[IMPLEMENTED]`
+
+All return `list[CheckError]` — empty list means no errors.
+
+| Function | Tier | Description |
+|---|---|---|
+| `check_parseable(journal)` | basic | Always `[]` — already parsed |
+| `check_autobalanced(journal)` | basic | Each transaction nets to zero per commodity; one elided posting allowed |
+| `check_accounts(journal)` | strict | All posting accounts appear in `declared_accounts` |
+| `check_commodities(journal)` | strict | All commodity symbols in amounts appear in `declared_commodities`; zero-amount postings (commodity `""`) are exempt |
+| `check_payees(journal)` | other | All transaction descriptions appear in `declared_payees` |
+| `check_ordereddates(journal)` | other | Transactions in non-decreasing date order |
+| `check_uniqueleafnames(journal)` | other | No two accounts share the same final colon-segment |
+
+---
+
+### `run_basic_checks` `[IMPLEMENTED]`
+
+```python
+def run_basic_checks(journal: Journal) -> list[CheckError]:
+    """Run parseable + autobalanced checks. Always run by the CLI."""
+```
+
+---
+
+### `run_strict_checks` `[IMPLEMENTED]`
+
+```python
+def run_strict_checks(journal: Journal) -> list[CheckError]:
+    """Run basic checks plus accounts + commodities checks."""
+```
+
+---
+
+### `run_checks` `[IMPLEMENTED]`
+
+```python
+def run_checks(
+    journal: Journal,
+    names: list[str] | None = None,
+    *,
+    strict: bool = False,
+) -> list[CheckError]:
+    """Run basic checks always; strict checks if strict=True;
+    named 'other' checks if listed in names.
+
+    Valid names: "parseable", "autobalanced", "accounts", "commodities",
+    "payees", "ordereddates", "uniqueleafnames".
+
+    Raises:
+        ValueError: if an unknown check name is provided.
+    """
+```
 
 ---
 
@@ -315,18 +439,42 @@ def main(argv: list[str] | None = None) -> int:
 CLI interface (via `pyproject.toml` `[project.scripts]` and `PyLedger/__main__.py`):
 
 ```
-PyLedger [-v] [-1] [-o FILE] <command> <journal-file>
-python -m PyLedger [-v] [-1] [-o FILE] <command> <journal-file>
+PyLedger [-f FILE]... [-s] [-v] [-1] [-o FILE] <command> [args...]
+python -m PyLedger [-f FILE]... [-s] [-v] [-1] [-o FILE] <command> [args...]
 
 Flags:
+  -f, --file         Read data from FILE, or stdin if -. May be specified
+                     more than once; all files are merged in order. If not
+                     given, falls back to the positional argument, then
+                     $LEDGER_FILE, then ~/.hledger.journal.
+  -s, --strict       Enable strict mode: also check that all posting accounts
+                     and commodity symbols are declared via account/commodity
+                     directives. Equivalent to running check accounts commodities
+                     in addition to the default basic checks.
   -v, --verbose      More detailed output (stats: show commodity names)
   -1                 Single tab-separated line (stats only)
   -o, --output-file  Write output to FILE instead of stdout
 
 Commands:
-  balance    Print account balances
-  register   Print a register of transactions
-  accounts   List all accounts
-  print      Print transactions in journal format
-  stats      Print journal statistics
+  balance             Print account balances
+  register            Print a register of transactions
+  accounts            List all accounts
+  print               Print transactions in journal format
+  stats               Print journal statistics
+  check [CHECK...]    Run validation checks; default runs basic checks only.
+                      Named checks: parseable autobalanced accounts commodities
+                                    payees ordereddates uniqueleafnames
 ```
+
+**Default validation**: all commands run `autobalanced` and `parseable` checks
+automatically before executing. Any failure prints an error to stderr and exits 1.
+
+**`check` command**: accepts zero or more check names as positional arguments.
+With no names, runs only the basic checks. With `-s`, also runs `accounts` and
+`commodities`. Named `other` checks (`payees`, `ordereddates`, `uniqueleafnames`)
+are run only if explicitly listed. Silent on success (exit 0); errors to stderr
+(exit 1).
+
+The positional `journal-file` argument (when not using `check`) is a
+backward-compatible shorthand for `-f FILE`. Specifying both `-f` and a
+positional argument is an error.

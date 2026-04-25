@@ -47,15 +47,30 @@ Implement a working parser so that `.journal` files can be loaded into memory as
 - **include directive** (`include other.journal`) — embeds entries and directives
   from another `.journal` or `.ledger` file inline; relative, absolute, tilde,
   and glob paths supported; circular include detection; format-prefix rejection ✅
+- **account directive** (`account ACCOUNT`) — declares an account name; stored
+  in `Journal.declared_accounts` ✅
+- **commodity directive** (`commodity $1,000.00` / `commodity EUR`) — declares a
+  commodity symbol; stored in `Journal.declared_commodities` ✅
+- **payee directive** (`payee PAYEE`) — declares a payee name; stored in
+  `Journal.declared_payees` ✅
+- **Validation / checks module** (`checks.py`) — `CheckError`, individual check
+  functions (`autobalanced`, `accounts`, `commodities`, `payees`,
+  `ordereddates`, `uniqueleafnames`), and runners ✅
+- **Default autobalanced gate** — all CLI commands validate transaction balance
+  before executing ✅
+- **`-s`/`--strict` flag** — additionally checks that all accounts and
+  commodities are declared ✅
+- **`check [NAME...]` command** — run individual or grouped checks on demand ✅
 - Module-level API: `Journal` report methods (`.balance()`, `.register()`,
   `.accounts()`, `.stats()`); `PyLedger.load()` convenience function;
   `python -m PyLedger` entry point ✅
 - Regex documentation rule enforced on all patterns ✅
 - `dev-docs/hledger-compatibility.md` updated with transaction block structure,
-  P directive, alias directive, and include directive ✅
+  P directive, alias directive, include directive, account/commodity/payee
+  directives, and validation checks table ✅
 
 **Exit criteria:**
-- `python -m unittest tests.test_parser tests.test_reports tests.test_loader -v` — all tests pass ✅
+- `python -m unittest tests.test_parser tests.test_reports tests.test_loader tests.test_checks tests.test_cli -v` — all 213 tests pass ✅
 - `python -m PyLedger print tests/fixtures/sample.journal` outputs all
   5 transactions correctly ✅
 - P directives parsed and stored in `journal.prices` ✅
@@ -63,6 +78,9 @@ Implement a working parser so that `.journal` files can be loaded into memory as
   regex alias forms ✅
 - `include` directive resolves relative, absolute, tilde, and glob paths;
   included file entries appear in the resulting `Journal` as if written inline ✅
+- `python -m PyLedger -s -f tests/fixtures/strict_valid.journal stats` exits 0 ✅
+- Unbalanced transaction causes exit 1 on any command ✅
+- `python -m PyLedger check ordereddates -f tests/fixtures/sample.journal` runs cleanly ✅
 
 ---
 
@@ -109,7 +127,6 @@ Items not scheduled for a milestone yet. Promote to a milestone when prioritised
 
 | Item | Notes |
 |---|---|
-| Strict mode (balance validation) | Parser accepts unbalanced transactions; reports could flag them |
 | Multiple commodities per journal | Currently assumed single-commodity per transaction |
 | Account type inference | Infer assets/liabilities/income/expenses from name prefix |
 | Periodic/auto postings | Out of scope for v1 |

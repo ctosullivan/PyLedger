@@ -129,6 +129,25 @@ A transaction block is the fundamental unit of a journal file.
 | P directive | `P DATE COMMODITY PRICE` | Market price declaration; stored in `Journal.prices` as `PriceDirective` objects; records a commodity price at a point in time. Scope behaviour (file-local vs propagated via `include`) TBD at implementation. Commodity valuation using stored prices is in scope for v1 (Milestone 2). Reference: https://hledger.org/1.52/hledger.html#p-directive |
 | alias directive | `alias OLD=NEW` / `alias /REGEX/=REPLACEMENT` / `end aliases` | Account name rewriting; applies from directive to `end aliases` or file end; backreferences (`\1`) supported in regex form; local to current file. Reference: https://hledger.org/1.52/hledger.html#alias-directive |
 | include directive | `include other.journal` | **[IMPLEMENTED]** Embeds entries and directives from another `.journal` or `.ledger` file inline at the point of the directive; directives active before the include apply to the included file (text-expansion strategy). Path resolution: relative to containing file's directory, absolute, and `~` tilde expansion; glob patterns (`*`, `**`, `?`, `[range]`) expanded via `glob.glob(recursive=True)`; the containing file is always excluded from glob results. A glob that matches no files raises `ParseError`. Circular includes raise `ParseError`. Format prefixes (e.g. `timedot:`) raise `ParseError` — not supported in PyLedger v1. Only `.journal` and `.ledger` targets accepted (other extensions raise `ParseError`). **Dot-file glob behaviour**: uses Python `glob.glob()` defaults, which may differ from hledger 1.52 (hledger excludes dot files from `*`/`**`; Python's glob may include them). Reference: https://hledger.org/1.52/hledger.html#include-directive |
+| account directive | `account assets:bank:checking` | **[IMPLEMENTED]** Declares an account name. Stored in `Journal.declared_accounts`. Inline comments (2-space + `;`) and Ledger-style indented subdirectives are stripped. Used by `check accounts` / `-s`. Account types (`type:` tag), display ordering, and tag propagation are deferred. Reference: https://hledger.org/1.52/hledger.html#account-directive |
+| commodity directive | `commodity $1,000.00` / `commodity EUR` | **[IMPLEMENTED]** Declares a commodity symbol. Symbol extracted from sample amount (prefix `$`, suffix `EUR`) or bare token. Quoted symbols (`"AAPL 2023"`) supported. Indented `format` subdirectives consumed and ignored. Stored in `Journal.declared_commodities`. Used by `check commodities` / `-s`. Commodity display style and decimal-mark inference are deferred. Reference: https://hledger.org/1.52/hledger.html#commodity-directive |
+| payee directive | `payee Whole Foods` | **[IMPLEMENTED]** Declares a payee name. Inline comments stripped with 2-space rule. Quoted names (`payee ""`) supported. Stored in `Journal.declared_payees`. Used by `check payees`. Reference: https://hledger.org/1.52/hledger.html#payee-directive |
+
+### Validation / Checks
+
+PyLedger runs validation checks after parsing. Checks are grouped into tiers.
+
+| Check | Tier | Description |
+|---|---|---|
+| `parseable` | basic (always) | Journal parsed without `ParseError` — trivially satisfied after load |
+| `autobalanced` | basic (always) | Each transaction nets to zero per commodity; one elided posting per transaction is allowed and is inferred to balance |
+| `accounts` | strict (`-s`) | All posting accounts appear in `declared_accounts` |
+| `commodities` | strict (`-s`) | All commodity symbols in amounts appear in `declared_commodities`; zero-amount postings (commodity `""`) are exempt |
+| `payees` | other (named) | All transaction descriptions appear in `declared_payees` |
+| `ordereddates` | other (named) | Transactions appear in non-decreasing date order |
+| `uniqueleafnames` | other (named) | No two accounts share the same final colon-segment |
+
+**Deferred checks** (out of scope for v1): `balanced` (exact-balance assertions), `assertions` (balance-assertion directives), `recentassertions`, `tags`.
 
 ---
 
@@ -140,7 +159,6 @@ feature below.
 
 | Feature | hledger syntax | v1 behaviour |
 |---|---|---|
-| Directives | `account`, `commodity`, etc. | Silently ignored (lines starting with a known keyword are skipped) |
 | Auto postings | `= expenses:food` rules | `ParseError` |
 | Periodic transactions | `~ monthly` | `ParseError` |
 | Timeclock entries | `i`, `o`, `b`, `h` records | `ParseError` |
@@ -157,7 +175,6 @@ feature below.
 ## Undecided / Future
 
 - Multiple commodities in one transaction
-- Strict mode (unbalanced transaction detection)
 - Account type inference from name prefixes (`assets`, `liabilities`, etc.)
 - Smart dates (hledger relative date expressions such as `today`, `yesterday`,
   `last month`, `next year`) — not currently planned for v1

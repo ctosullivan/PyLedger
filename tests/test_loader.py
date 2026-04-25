@@ -1,4 +1,4 @@
-"""Tests for PyLedger.loader — load_journal and include directive."""
+"""Tests for PyLedger.loader — load_journal, include directive, merge_journals."""
 
 import os
 import pathlib
@@ -6,7 +6,7 @@ import tempfile
 import textwrap
 import unittest
 
-from PyLedger.loader import load_journal
+from PyLedger.loader import load_journal, merge_journals
 from PyLedger.parser import ParseError
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
@@ -346,6 +346,94 @@ class TestIncludeErrors(unittest.TestCase):
             os.unlink(str(root))
 
 
+class TestMergeJournals(unittest.TestCase):
+    """merge_journals — combining multiple Journal objects."""
+
+    def _make_journal(self, descriptions, source_file=None, included_files=0):
+        from PyLedger.parser import parse_string
+        lines = []
+        for i, desc in enumerate(descriptions, 1):
+            lines.append(f"2024-0{i}-01 {desc}")
+            lines.append("    assets:bank  £1.00")
+            lines.append("    income:other  -£1.00")
+            lines.append("")
+        j = parse_string("\n".join(lines))
+        j.source_file = source_file
+        j.included_files = included_files
+        return j
+
+    def test_merge_single_journal(self):
+        j = self._make_journal(["Alpha"])
+        result = merge_journals([j])
+        self.assertIs(result, j)
+
+    def test_merge_empty_raises(self):
+        with self.assertRaises(ValueError):
+            merge_journals([])
+
+    def test_merge_two_journals_transaction_count(self):
+        j1 = self._make_journal(["Alpha", "Beta"])
+        j2 = self._make_journal(["Gamma"])
+        result = merge_journals([j1, j2])
+        self.assertEqual(len(result.transactions), 3)
+
+    def test_merge_transaction_order_preserved(self):
+        j1 = self._make_journal(["Alpha", "Beta"])
+        j2 = self._make_journal(["Gamma"])
+        result = merge_journals([j1, j2])
+        descs = [t.description for t in result.transactions]
+        self.assertEqual(descs, ["Alpha", "Beta", "Gamma"])
+
+    def test_merge_source_file_is_first(self):
+        j1 = self._make_journal(["A"], source_file="/path/to/first.journal")
+        j2 = self._make_journal(["B"], source_file="/path/to/second.journal")
+        result = merge_journals([j1, j2])
+        self.assertEqual(result.source_file, "/path/to/first.journal")
+
+    def test_merge_included_files_summed(self):
+        j1 = self._make_journal(["A"], included_files=2)
+        j2 = self._make_journal(["B"], included_files=1)
+        result = merge_journals([j1, j2])
+        self.assertEqual(result.included_files, 3)
+
+    def test_merge_prices_combined(self):
+        from PyLedger.models import Journal, PriceDirective, Amount
+        from decimal import Decimal
+        import datetime
+        price1 = PriceDirective(
+            date=datetime.date(2024, 1, 1),
+            commodity="AAPL",
+            price=Amount(Decimal("100.00"), "$"),
+        )
+        price2 = PriceDirective(
+            date=datetime.date(2024, 2, 1),
+            commodity="AAPL",
+            price=Amount(Decimal("110.00"), "$"),
+        )
+        j1 = Journal(transactions=[], prices=[price1])
+        j2 = Journal(transactions=[], prices=[price2])
+        result = merge_journals([j1, j2])
+        self.assertEqual(len(result.prices), 2)
+
+    def test_merge_three_journals(self):
+        j1 = self._make_journal(["A"])
+        j2 = self._make_journal(["B"])
+        j3 = self._make_journal(["C"])
+        result = merge_journals([j1, j2, j3])
+        self.assertEqual(len(result.transactions), 3)
+        descs = [t.description for t in result.transactions]
+        self.assertEqual(descs, ["A", "B", "C"])
+
+    def test_merge_with_real_files(self):
+        j1 = load_journal(SAMPLE_JOURNAL)
+        j2 = load_journal(FIXTURES / "root_with_include.journal")
+        result = merge_journals([j1, j2])
+        self.assertEqual(
+            len(result.transactions),
+            len(j1.transactions) + len(j2.transactions),
+        )
+
+
 class TestStatsIntegration(unittest.TestCase):
     """included_files propagates correctly to JournalStats."""
 
@@ -386,6 +474,55 @@ class TestPublicAPI(unittest.TestCase):
         )
         j = parse_string(text)
         self.assertEqual(len(j.transactions), 1)
+
+
+class TestMergeJournalsDeclared(unittest.TestCase):
+    """merge_journals should concatenate declared_* fields from all journals."""
+
+    def _make_journal(
+        self,
+        accounts: list | None = None,
+        commodities: list | None = None,
+        payees: list | None = None,
+    ):
+        from PyLedger.models import Journal
+        return Journal(
+            declared_accounts=accounts or [],
+            declared_commodities=commodities or [],
+            declared_payees=payees or [],
+        )
+
+    def test_merge_declared_accounts_concatenated(self):
+        j1 = self._make_journal(accounts=["assets:bank"])
+        j2 = self._make_journal(accounts=["income:salary"])
+        result = merge_journals([j1, j2])
+        self.assertEqual(result.declared_accounts, ["assets:bank", "income:salary"])
+
+    def test_merge_declared_commodities_concatenated(self):
+        j1 = self._make_journal(commodities=["£"])
+        j2 = self._make_journal(commodities=["EUR"])
+        result = merge_journals([j1, j2])
+        self.assertEqual(result.declared_commodities, ["£", "EUR"])
+
+    def test_merge_declared_payees_concatenated(self):
+        j1 = self._make_journal(payees=["Shop A"])
+        j2 = self._make_journal(payees=["Shop B"])
+        result = merge_journals([j1, j2])
+        self.assertEqual(result.declared_payees, ["Shop A", "Shop B"])
+
+    def test_merge_declared_fields_empty_when_none(self):
+        j1 = self._make_journal()
+        j2 = self._make_journal()
+        result = merge_journals([j1, j2])
+        self.assertEqual(result.declared_accounts, [])
+        self.assertEqual(result.declared_commodities, [])
+        self.assertEqual(result.declared_payees, [])
+
+    def test_merge_single_journal_preserves_declared_fields(self):
+        j = self._make_journal(accounts=["assets:bank"], commodities=["£"])
+        result = merge_journals([j])
+        self.assertIs(result, j)  # single-journal fast path returns original
+        self.assertEqual(result.declared_accounts, ["assets:bank"])
 
 
 if __name__ == "__main__":

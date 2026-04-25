@@ -338,5 +338,145 @@ class TestSimpleDateFormats(unittest.TestCase):
             )
 
 
+# ---------------------------------------------------------------------------
+# account directive
+# ---------------------------------------------------------------------------
+
+class TestAccountDirective(unittest.TestCase):
+    def test_account_directive_stored(self):
+        j = parse_string("account assets:bank\n")
+        self.assertEqual(j.declared_accounts, ["assets:bank"])
+
+    def test_multiple_account_directives(self):
+        j = parse_string("account assets:bank\naccount income:salary\n")
+        self.assertEqual(j.declared_accounts, ["assets:bank", "income:salary"])
+
+    def test_account_inline_comment_stripped(self):
+        j = parse_string("account assets:bank  ; checking account\n")
+        self.assertEqual(j.declared_accounts, ["assets:bank"])
+
+    def test_account_single_space_semicolon_in_name(self):
+        # Single space before ';' → ';' is part of the name (no separator)
+        j = parse_string("account a:b ; note\n")
+        self.assertEqual(j.declared_accounts, ["a:b ; note"])
+
+    def test_account_subdirectives_skipped(self):
+        text = "account assets:bank\n    format something\n    ; a note\n"
+        j = parse_string(text)
+        # Only the account name is stored; subdirectives do not create extra entries
+        self.assertEqual(j.declared_accounts, ["assets:bank"])
+
+    def test_account_directive_inside_block_comment_ignored(self):
+        text = "comment\naccount assets:bank\nend comment\n"
+        j = parse_string(text)
+        self.assertEqual(j.declared_accounts, [])
+
+    def test_account_directive_does_not_affect_transactions(self):
+        text = (
+            "account assets:bank\n"
+            "account income:salary\n"
+            "\n"
+            "2024-01-01 Pay\n"
+            "    assets:bank  £10.00\n"
+            "    income:salary  -£10.00\n"
+        )
+        j = parse_string(text)
+        self.assertEqual(len(j.transactions), 1)
+        self.assertEqual(j.declared_accounts, ["assets:bank", "income:salary"])
+
+
+# ---------------------------------------------------------------------------
+# commodity directive
+# ---------------------------------------------------------------------------
+
+class TestCommodityDirective(unittest.TestCase):
+    def test_prefix_symbol(self):
+        j = parse_string("commodity £1,000.00\n")
+        self.assertEqual(j.declared_commodities, ["£"])
+
+    def test_prefix_dollar(self):
+        j = parse_string("commodity $1,000.00\n")
+        self.assertEqual(j.declared_commodities, ["$"])
+
+    def test_suffix_symbol(self):
+        j = parse_string("commodity 1,000.00 EUR\n")
+        self.assertEqual(j.declared_commodities, ["EUR"])
+
+    def test_suffix_symbol_USD(self):
+        j = parse_string("commodity 1.00 USD\n")
+        self.assertEqual(j.declared_commodities, ["USD"])
+
+    def test_bare_symbol_sigil(self):
+        j = parse_string("commodity $\n")
+        self.assertEqual(j.declared_commodities, ["$"])
+
+    def test_bare_symbol_word(self):
+        j = parse_string("commodity INR\n")
+        self.assertEqual(j.declared_commodities, ["INR"])
+
+    def test_quoted_symbol(self):
+        j = parse_string('commodity "AAPL 2023"\n')
+        self.assertEqual(j.declared_commodities, ["AAPL 2023"])
+
+    def test_quoted_empty_symbol(self):
+        j = parse_string('commodity ""\n')
+        self.assertEqual(j.declared_commodities, [""])
+
+    def test_no_symbol_numeric_only(self):
+        # e.g. "commodity 1000." declares the no-symbol commodity
+        j = parse_string("commodity 1000.\n")
+        self.assertEqual(j.declared_commodities, [""])
+
+    def test_inline_comment_stripped(self):
+        j = parse_string("commodity $  ; US dollar\n")
+        self.assertEqual(j.declared_commodities, ["$"])
+
+    def test_format_subdirective_skipped(self):
+        text = "commodity INR\n    format INR 1,00,00,000.00\n"
+        j = parse_string(text)
+        self.assertEqual(j.declared_commodities, ["INR"])
+
+    def test_commodity_inside_block_comment_ignored(self):
+        text = "comment\ncommodity £\nend comment\n"
+        j = parse_string(text)
+        self.assertEqual(j.declared_commodities, [])
+
+
+# ---------------------------------------------------------------------------
+# payee directive
+# ---------------------------------------------------------------------------
+
+class TestPayeeDirective(unittest.TestCase):
+    def test_payee_stored(self):
+        j = parse_string("payee Whole Foods\n")
+        self.assertEqual(j.declared_payees, ["Whole Foods"])
+
+    def test_payee_inline_comment_stripped(self):
+        j = parse_string("payee Whole Foods  ; grocery store\n")
+        self.assertEqual(j.declared_payees, ["Whole Foods"])
+
+    def test_payee_single_space_semicolon_kept(self):
+        # Single space before ';' → ';' is NOT the 2-space separator
+        j = parse_string("payee Smith & Jones ; law firm\n")
+        self.assertEqual(j.declared_payees, ["Smith & Jones ; law firm"])
+
+    def test_payee_quoted_empty(self):
+        j = parse_string('payee ""\n')
+        self.assertEqual(j.declared_payees, [""])
+
+    def test_payee_quoted_name(self):
+        j = parse_string('payee "Smith & Co"\n')
+        self.assertEqual(j.declared_payees, ["Smith & Co"])
+
+    def test_payee_inside_block_comment_ignored(self):
+        text = "comment\npayee Supermarket\nend comment\n"
+        j = parse_string(text)
+        self.assertEqual(j.declared_payees, [])
+
+    def test_multiple_payees(self):
+        j = parse_string("payee Shop A\npayee Shop B\n")
+        self.assertEqual(j.declared_payees, ["Shop A", "Shop B"])
+
+
 if __name__ == "__main__":
     unittest.main()

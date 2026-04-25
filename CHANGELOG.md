@@ -17,6 +17,30 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — feat: hledger-style strict check error output with source context
+
+**Human:** Update `-s`/`--strict` error output to match hledger behaviour: stop after the first failing account/commodity, show the source file path and line number, display the transaction context with carets underlining the problematic account or amount, and include the "Consider adding a directive" suggestion text.
+
+**Claude:** Added `source_line: int | None` field to `Posting` and `Transaction` models (recorded by `_parse_txn_header` and `_parse_posting` in parser.py). Added private helpers `_fmt_txn_header`, `_fmt_amount`, `_fmt_posting`, and `_build_strict_context` to `checks.py`. Refactored `check_accounts` and `check_commodities` to stop at the first error and return a multi-line message with `Error: <path>:<line>:` header, transaction context, caret underline, and suggestion text matching hledger 1.52 format. Changed `CheckError.message` docstring from "single line" to "may be multi-line". Updated `TestCheckAccounts.test_no_declarations_flags_all` → `test_no_declarations_reports_first` (now expects 1 error, matching hledger stop-at-first). Updated 4 CLI test assertions from `"accounts/commodities check"` to `"has not been declared"`. Updated `api-spec.md`. All 216 tests pass.
+
+---
+
+### [Unreleased] — feat: checks module, strict mode, and account/commodity/payee directives
+
+**Human:** Extend Milestone 1 to include: `account`, `commodity`, and `payee` directive parsing; a new `checks.py` module with `autobalanced`, `accounts`, `commodities`, `payees`, `ordereddates`, and `uniqueleafnames` checks; default autobalanced validation on all CLI commands; `-s`/`--strict` flag; and a `check [NAME...]` CLI command.
+
+**Claude:** Added `declared_accounts`, `declared_commodities`, `declared_payees` fields to `Journal` (models.py). Added `account`, `commodity`, and `payee` directive parsing to `parser.py` (with 2-space comment separator rule, subdirective consumption, quoted payee/commodity support, and full hledger 1.52 symbol-extraction algorithm). Extended `merge_journals()` to concatenate all three declared-* lists. Created `PyLedger/checks.py` with `CheckError` dataclass, seven check functions, and three runners (`run_basic_checks`, `run_strict_checks`, `run_checks`). Updated `cli.py`: default basic-check gate on all commands, `-s`/`--strict` flag, `check [NAME...]` command, and `nargs="*"` for the positional to support multiple check names. Re-exported `CheckError` from `PyLedger.__init__`. Added `tests/test_checks.py` (56 tests), extended `test_parser.py` (26 new tests), `test_loader.py` (5 new tests), and `test_cli.py` (3 updated tests). Added `tests/fixtures/strict_valid.journal`. Updated `api-spec.md`, `architecture.md`, `hledger-compatibility.md`, `docs/usage.md`. All 213 tests pass.
+
+---
+
+### [Unreleased] — feat: implement -f/--file CLI flag
+
+**Human:** Implement the `-f`/`--file` flag in the CLI interface per the hledger spec: repeatable, stdin support (`-`), and fallback to `$LEDGER_FILE` / `~/.hledger.journal` when no file is specified.
+
+**Claude:** Added `-f`/`--file` flag to `cli.py` (`action='append'`, repeatable). Made the positional `journal` argument optional (backward-compatible shorthand for a single `-f`; error if both given). Added `_resolve_files()` helper with full fallback chain. Added `load_journal_stdin()` and `merge_journals()` to `loader.py`. Updated `main()` to load all specified files and merge. Added `TestMergeJournals` (9 tests) to `test_loader.py` and new `tests/test_cli.py` (15 tests). Updated `api-spec.md`, `architecture.md`, `docs/usage.md`. All 128 tests pass.
+
+---
+
 ### [Unreleased] — chore: release v0.1.2
 
 **Human:** Update version number to 0.1.2.

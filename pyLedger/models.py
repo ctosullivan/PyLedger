@@ -38,6 +38,7 @@ class Posting:
 
     account: str
     amount: Amount | None = None
+    source_line: int | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -51,6 +52,7 @@ class Transaction:
     pending: bool = False    # True when marked with "!"
     code: str = ""           # Optional code in parentheses before description
     comment: str = ""        # Inline or trailing comment text
+    source_line: int | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -77,6 +79,9 @@ class Journal:
 
     transactions: list[Transaction] = field(default_factory=list)
     prices: list[PriceDirective] = field(default_factory=list)
+    declared_accounts: list[str] = field(default_factory=list)
+    declared_commodities: list[str] = field(default_factory=list)
+    declared_payees: list[str] = field(default_factory=list)
     source_file: str | None = None
     included_files: int = 0
 

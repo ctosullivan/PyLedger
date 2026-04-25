@@ -9,14 +9,91 @@ PyLedger can be used as a command-line tool or as a Python library.
 ### Syntax
 
 ```bash
-PyLedger <command> <journal-file>
+PyLedger [-f FILE]... [-s] <command> [args...]
 ```
 
 You can also invoke it as a Python module (equivalent):
 
 ```bash
-python -m PyLedger <command> <journal-file>
+python -m PyLedger [-f FILE]... [-s] <command> [args...]
 ```
+
+#### Specifying the journal file
+
+Use `-f`/`--file` to specify the journal file (can be given more than once to
+merge multiple files):
+
+```bash
+# Single file
+PyLedger -f myledger.journal stats
+
+# Multiple files — transactions from both are merged in order
+PyLedger -f checking.journal -f savings.journal stats
+
+# Read from stdin
+cat myledger.journal | PyLedger -f - stats
+```
+
+The positional argument is a shorthand for a single `-f` (kept for
+backward compatibility):
+
+```bash
+PyLedger stats myledger.journal
+```
+
+If no file is specified, PyLedger checks the `$LEDGER_FILE` environment
+variable, then falls back to `~/.hledger.journal`.
+
+---
+
+### `-s` / `--strict` — Strict mode
+
+By default PyLedger checks that every transaction balances (the `autobalanced`
+check). Strict mode adds two extra checks:
+
+- **`accounts`** — every posting account must be declared with an `account`
+  directive somewhere in the journal
+- **`commodities`** — every commodity symbol must be declared with a `commodity`
+  directive
+
+```bash
+PyLedger -s -f myledger.journal stats
+```
+
+If any check fails, PyLedger prints an error to stderr and exits with code 1.
+
+---
+
+### `check` — Run validation checks
+
+The `check` command lets you run individual or grouped validation checks on
+demand.
+
+```bash
+# Run basic checks only (same as the default gate on all commands)
+PyLedger check -f myledger.journal
+
+# Run strict checks (basic + accounts + commodities)
+PyLedger -s check -f myledger.journal
+
+# Run specific named checks
+PyLedger check ordereddates -f myledger.journal
+PyLedger check payees ordereddates -f myledger.journal
+```
+
+Available check names:
+
+| Name | Description |
+|---|---|
+| `parseable` | Journal loaded without errors (trivially satisfied) |
+| `autobalanced` | Every transaction nets to zero (one elided posting allowed) |
+| `accounts` | All posting accounts declared via `account` directives |
+| `commodities` | All commodity symbols declared via `commodity` directives |
+| `payees` | All transaction descriptions declared via `payee` directives |
+| `ordereddates` | Transactions appear in non-decreasing date order |
+| `uniqueleafnames` | No two accounts share the same final colon-segment |
+
+On success: no output, exit code 0. On failure: errors printed to stderr, exit code 1.
 
 ---
 

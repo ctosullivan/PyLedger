@@ -14,6 +14,28 @@ from decimal import Decimal, InvalidOperation
 from PyLedger.models import Amount, Journal, Posting, Transaction
 
 
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+
+# Matches the two-or-more-space+semicolon comment separator used in directives.
+#
+# Purpose: split directive lines on the boundary between directive body and
+#          inline comment, per hledger's rule that a single space may appear
+#          inside a body value (e.g. an account name like "expenses:fun money")
+#          but two or more spaces before a semicolon always begin a comment.
+#
+# Pattern: \s{2,};
+#   \s{2,} — two or more whitespace characters (spaces or tabs)
+#   ;      — the semicolon that opens the comment
+#
+# Edge cases:
+#   - A single space before ';' is NOT a separator (the ';' belongs to the body)
+#   - Only the FIRST match is used (re.split with maxsplit=1)
+#   - Lines with no such pattern return the original body unchanged
+_TWO_SPACE_SEP = re.compile(r"\s{2,};")
+
+
 class ParseError(ValueError):
     """Raised on malformed hledger journal input.
 
@@ -179,6 +201,7 @@ def _parse_txn_header(line: str, lineno: int, default_year: int) -> Transaction:
         pending=(flag == "!"),
         code=(code or "").strip(),
         comment=(comment or "").strip(),
+        source_line=lineno,
     )
 
 
@@ -206,6 +229,87 @@ def _parse_amount(raw: str, lineno: int) -> Amount:
         raise ParseError(f"invalid numeric quantity in amount: {raw!r}", lineno)
 
     return Amount(quantity=quantity, commodity=commodity)
+
+
+def _strip_directive_comment(raw: str) -> str:
+    """Strip an inline comment from a directive body using the 2-space rule.
+
+    Returns the body text before the first '  ;' sequence, stripped of
+    surrounding whitespace. If no such sequence exists, returns the stripped
+    input unchanged.
+    """
+    parts = _TWO_SPACE_SEP.split(raw, maxsplit=1)
+    return parts[0].strip()
+
+
+# Matches the numeric-and-optional-suffix part of a commodity sample amount.
+#
+# Purpose: extract the commodity symbol from a commodity directive whose body
+#          is an amount token (e.g. "$1,000.00", "1,000.00 EUR", "1000. AAAA").
+#          Also handles a bare symbol (e.g. "$", "INR") where no digits follow.
+#
+# Group breakdown:
+#   (1) [^\d,.\s"-]*  — prefix symbol: any run of chars that are NOT digits,
+#                       commas, dots, whitespace, quotes, or minus; captures
+#                       '$', '£', '€', etc. when they lead the token; empty
+#                       string when the commodity is a suffix token
+#   (2) [\d,. ]*      — numeric portion: digits, commas, dots, and spaces
+#                       (thousands-separated amounts can contain internal spaces)
+#   (3) \s*([^\d,.\s]*)  — suffix symbol: any non-numeric run after the numeric
+#                          portion, stripped of leading whitespace; captures
+#                          'EUR', 'USD', 'AAPL' etc.; empty when prefix symbol
+#
+# Edge cases:
+#   - "1000. AAAA"  → prefix='' numeric='1000. ' suffix='AAAA'
+#   - "$1,000.00"   → prefix='$' numeric='1,000.00' suffix=''
+#   - "$"           → prefix='$' numeric='' suffix=''
+#   - "INR"         → prefix='' numeric='' suffix='INR'  (falls through to bare-symbol path)
+#   - '1 000 000.0000' → internal spaces handled by numeric group
+_COMMODITY_AMOUNT = re.compile(
+    r'^([^\d,.\s"-]*)'
+    r'([\d,. ]*)'
+    r'\s*([^\d,.\s]*)'
+    r'$'
+)
+
+
+def _extract_commodity_symbol(raw: str, lineno: int) -> str:
+    """Extract the commodity symbol from a commodity directive body.
+
+    Handles all hledger commodity directive forms:
+      - Quoted:       "AAPL 2023"  →  AAPL 2023
+      - Prefix+amt:   $1,000.00    →  $
+      - Suffix+amt:   1,000.00 EUR →  EUR
+      - Bare symbol:  INR          →  INR
+      - Bare sigil:   $            →  $
+      - Empty quoted: ""           →  (empty string, the no-symbol commodity)
+
+    Raises:
+        ParseError: if the body is empty after stripping.
+    """
+    body = raw.strip()
+    if not body:
+        raise ParseError("commodity directive has no symbol", lineno)
+
+    # Quoted symbol: "AAPL 2023" or ""
+    if body.startswith('"'):
+        end = body.find('"', 1)
+        if end == -1:
+            raise ParseError(f"commodity directive has unterminated quoted symbol: {body!r}", lineno)
+        return body[1:end]
+
+    m = _COMMODITY_AMOUNT.match(body)
+    if not m:
+        raise ParseError(f"commodity directive: cannot parse symbol from {body!r}", lineno)
+
+    prefix, numeric, suffix = m.group(1), m.group(2), m.group(3)
+
+    if prefix:
+        return prefix
+    if suffix:
+        return suffix.strip()
+    # Numeric-only body (e.g. "1000.") — no symbol, no-symbol commodity
+    return ""
 
 
 def _parse_posting(line: str, lineno: int) -> Posting:
@@ -244,9 +348,9 @@ def _parse_posting(line: str, lineno: int) -> Posting:
         amount_raw = amount_part.strip()
 
     if not amount_raw:
-        return Posting(account=account, amount=None)
+        return Posting(account=account, amount=None, source_line=lineno)
 
-    return Posting(account=account, amount=_parse_amount(amount_raw, lineno))
+    return Posting(account=account, amount=_parse_amount(amount_raw, lineno), source_line=lineno)
 
 
 # ---------------------------------------------------------------------------
@@ -275,8 +379,12 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
         default_year = datetime.date.today().year
 
     transactions: list[Transaction] = []
+    declared_accounts: list[str] = []
+    declared_commodities: list[str] = []
+    declared_payees: list[str] = []
     current_txn: Transaction | None = None
     in_block_comment = False
+    in_subdirective = False  # True while consuming indented subdirective lines
 
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip()
@@ -309,6 +417,7 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             if current_txn is not None:
                 transactions.append(current_txn)
                 current_txn = None
+            in_subdirective = False
             continue
 
         # --- Comment-only line (whole-line or indented follow-on `;` / `#`) ---
@@ -346,6 +455,7 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             if current_txn is not None:
                 # No blank line between transactions — flush previous block
                 transactions.append(current_txn)
+            in_subdirective = False
             current_txn = _parse_txn_header(line, lineno, default_year)
             continue
 
@@ -360,7 +470,96 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             if current_txn is not None:
                 transactions.append(current_txn)
                 current_txn = None
+            in_subdirective = False
             in_block_comment = True
+            continue
+
+        # --- Subdirective lines (indented lines following account/commodity/payee) ---
+        #
+        # Purpose: consume Ledger-style indented subdirectives (e.g. "format …"
+        #          below a commodity directive) without treating them as postings
+        #          or raising ParseError.  in_subdirective is set to True whenever
+        #          we finish processing an account/commodity/payee directive line;
+        #          it is cleared on the next non-indented, non-blank line.
+        #
+        # Edge cases:
+        #   - Blank lines above already clear in_subdirective via the blank-line
+        #     branch (which sets current_txn=None and falls through; the next
+        #     non-blank line will hit this check with in_subdirective still True
+        #     only if there was no blank line — so blank lines naturally end the
+        #     subdirective block)
+        #   - An indented subdirective line that contains a valid posting syntax
+        #     is still skipped here (subdirective wins); the containing file is
+        #     expected to be well-formed per hledger conventions
+        if in_subdirective:
+            if line[0:1].isspace():
+                continue  # consume indented subdirective silently
+            in_subdirective = False
+            # fall through to process this non-indented line normally
+
+        # --- account directive ---
+        #
+        # Purpose: record a declared account name for strict-mode checking.
+        #          The account name follows the keyword and may contain spaces
+        #          and ';' characters; an inline comment is delimited by the
+        #          first occurrence of two-or-more spaces followed by ';'.
+        #          Indented lines that follow (Ledger-style subdirectives) are
+        #          consumed silently via the in_subdirective flag.
+        #
+        # Edge cases:
+        #   - "account a:b;c" (single space before ';') → name is "a:b;c"
+        #   - "account a:b  ; note" → name is "a:b"
+        #   - "accounts" does not match because \s+ requires whitespace after
+        #     the exact word "account"
+        if not line[0:1].isspace() and re.match(r"^account\s+", line):
+            body = line[len("account"):].lstrip()
+            account_name = _strip_directive_comment(body)
+            if account_name:
+                declared_accounts.append(account_name)
+            in_subdirective = True
+            continue
+
+        # --- commodity directive ---
+        #
+        # Purpose: record a declared commodity symbol for strict-mode checking.
+        #          Supports all hledger commodity directive forms: sample amount
+        #          with prefix symbol ($1,000.00), sample amount with suffix
+        #          symbol (1,000.00 EUR), bare symbol ($, INR), quoted symbol
+        #          ("AAPL 2023"), empty-quoted no-symbol (""), and numeric-only
+        #          (1000.) for format declarations.
+        #
+        # Edge cases:
+        #   - "commodity" with no body raises ParseError (empty symbol)
+        #   - Indented "format" subdirectives are consumed via in_subdirective
+        #   - The same symbol may be declared more than once; deduplication is
+        #     done at check time, not parse time
+        if not line[0:1].isspace() and re.match(r"^commodity(\s|$)", line):
+            rest = line[len("commodity"):].strip()
+            body = _strip_directive_comment(rest)
+            symbol = _extract_commodity_symbol(body, lineno)
+            declared_commodities.append(symbol)
+            in_subdirective = True
+            continue
+
+        # --- payee directive ---
+        #
+        # Purpose: record a declared payee name for strict-mode / payee checking.
+        #          The payee name follows the keyword; inline comments are stripped
+        #          with the 2-space rule. Quoted empty-string payee ("") is stored
+        #          as the empty string. Tags in comments are ignored per the spec.
+        #
+        # Edge cases:
+        #   - 'payee ""' → stored as "" (the no-payee sentinel)
+        #   - "payee Whole Foods  ; comment" → "Whole Foods"
+        #   - Indented Ledger-style subdirectives are consumed silently
+        if not line[0:1].isspace() and re.match(r"^payee\s+", line):
+            body = line[len("payee"):].lstrip()
+            payee_name = _strip_directive_comment(body)
+            # Unquote a quoted payee name (e.g. payee "" or payee "Smith & Co")
+            if payee_name.startswith('"') and payee_name.endswith('"'):
+                payee_name = payee_name[1:-1]
+            declared_payees.append(payee_name)
+            in_subdirective = True
             continue
 
         # --- Posting line ---
@@ -396,6 +595,11 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
     if current_txn is not None:
         transactions.append(current_txn)
 
-    return Journal(transactions=transactions)
+    return Journal(
+        transactions=transactions,
+        declared_accounts=declared_accounts,
+        declared_commodities=declared_commodities,
+        declared_payees=declared_payees,
+    )
 
 

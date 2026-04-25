@@ -191,6 +191,62 @@ def _expand_includes(
     return "".join(output)
 
 
+def load_journal_stdin() -> Journal:
+    """Read a journal from stdin and return a Journal object.
+
+    Parses the full stdin contents as hledger journal text.
+    Sets source_file to "(stdin)". included_files is always 0
+    because stdin content cannot reference include directives
+    with resolvable relative paths.
+
+    Returns:
+        A :class:`~PyLedger.models.Journal` with ``source_file``
+        set to ``"(stdin)"``.
+
+    Raises:
+        ParseError: if the stdin content is malformed.
+    """
+    import sys
+
+    journal = parse_string(sys.stdin.read())
+    journal.source_file = "(stdin)"
+    return journal
+
+
+def merge_journals(journals: list[Journal]) -> Journal:
+    """Merge a list of Journal objects into a single Journal.
+
+    Transactions and prices are concatenated in input order.
+    ``source_file`` is taken from the first journal in the list.
+    ``included_files`` is the sum of all input journals'
+    ``included_files`` values.
+
+    Args:
+        journals: Non-empty list of Journal objects to merge.
+
+    Returns:
+        A new :class:`~PyLedger.models.Journal` containing the
+        combined data, or the original object when the list has
+        exactly one entry.
+
+    Raises:
+        ValueError: if ``journals`` is empty.
+    """
+    if not journals:
+        raise ValueError("merge_journals: at least one journal required")
+    if len(journals) == 1:
+        return journals[0]
+    return Journal(
+        transactions=[t for j in journals for t in j.transactions],
+        prices=[p for j in journals for p in j.prices],
+        declared_accounts=[a for j in journals for a in j.declared_accounts],
+        declared_commodities=[c for j in journals for c in j.declared_commodities],
+        declared_payees=[p for j in journals for p in j.declared_payees],
+        source_file=journals[0].source_file,
+        included_files=sum(j.included_files for j in journals),
+    )
+
+
 def load_journal(path: str | os.PathLike) -> Journal:
     """Load a .journal or .ledger file and return a Journal object.
 
