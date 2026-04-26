@@ -17,6 +17,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — feat: P directive parsing (market price declarations)
+
+**Human:** Implement the P directive which declares a market price relationship between two commodities, per hledger 1.52 spec.
+
+**Claude:** Added `PriceDirective` to the `parser.py` import. Added `_P_DIRECTIVE` regex (with full doc comment). Added `prices: list[PriceDirective]` state variable to `parse_string()`. Added P directive handler in the main loop — parses date via `_parse_simple_date`, price amount via `_parse_amount`, strips inline comments with `_strip_directive_comment`. Passes `prices` to the returned `Journal`. Added `TestPDirective` (9 tests) to `test_parser.py`. Updated `hledger-compatibility.md` to mark P directive `[IMPLEMENTED]`. No changes to `models.py`, `loader.py`, or `api-spec.md` — those were already correct.
+
+---
+
 ### [Unreleased] — feat: tag directive and decimal-mark directive
 
 **Human:** Implement the `tag` and `decimal-mark` directives from hledger 1.52 in PyLedger.

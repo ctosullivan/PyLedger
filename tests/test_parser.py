@@ -591,5 +591,76 @@ class TestDecimalMarkDirective(unittest.TestCase):
         self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
 
 
+class TestPDirective(unittest.TestCase):
+    """Tests for P (market price) directive parsing."""
+
+    def test_basic_p_directive(self):
+        text = "P 2024-03-01 AAPL $179.00\n"
+        j = parse_string(text)
+        self.assertEqual(len(j.prices), 1)
+        p = j.prices[0]
+        self.assertEqual(p.date, datetime.date(2024, 3, 1))
+        self.assertEqual(p.commodity, "AAPL")
+        self.assertEqual(p.price.quantity, Decimal("179.00"))
+        self.assertEqual(p.price.commodity, "$")
+
+    def test_multiple_p_directives(self):
+        text = "P 2009-01-01 EUR $1.35\nP 2010-01-01 EUR $1.40\n"
+        j = parse_string(text)
+        self.assertEqual(len(j.prices), 2)
+        self.assertEqual(j.prices[0].price.quantity, Decimal("1.35"))
+        self.assertEqual(j.prices[1].price.quantity, Decimal("1.40"))
+        self.assertEqual(j.prices[0].date.year, 2009)
+        self.assertEqual(j.prices[1].date.year, 2010)
+
+    def test_p_directive_prefix_symbol(self):
+        text = "P 2024-01-01 EUR $1.35\n"
+        j = parse_string(text)
+        self.assertEqual(j.prices[0].price.commodity, "$")
+        self.assertEqual(j.prices[0].price.quantity, Decimal("1.35"))
+
+    def test_p_directive_suffix_symbol(self):
+        text = "P 2024-01-01 EUR 1.35 USD\n"
+        j = parse_string(text)
+        self.assertEqual(j.prices[0].price.commodity, "USD")
+        self.assertEqual(j.prices[0].price.quantity, Decimal("1.35"))
+
+    def test_p_directive_inline_comment_stripped(self):
+        text = "P 2024-01-01 € $1.35  ; source: ECB\n"
+        j = parse_string(text)
+        self.assertEqual(len(j.prices), 1)
+        self.assertEqual(j.prices[0].price.quantity, Decimal("1.35"))
+        self.assertEqual(j.prices[0].price.commodity, "$")
+
+    def test_p_directive_inside_block_comment_ignored(self):
+        text = "comment\nP 2024-01-01 AAPL $100.00\nend comment\n"
+        j = parse_string(text)
+        self.assertEqual(j.prices, [])
+
+    def test_p_directive_invalid_date_raises(self):
+        text = "P 2024-99-01 EUR $1.00\n"
+        with self.assertRaises(ParseError):
+            parse_string(text)
+
+    def test_p_directive_invalid_amount_raises(self):
+        text = "P 2024-01-01 AAPL notanumber\n"
+        with self.assertRaises(ParseError):
+            parse_string(text)
+
+    def test_p_directive_does_not_affect_transactions(self):
+        text = (
+            "P 2024-01-01 EUR $1.35\n"
+            "\n"
+            "2024-01-10 Groceries\n"
+            "    expenses:food  $50.00\n"
+            "    assets:bank\n"
+        )
+        j = parse_string(text)
+        self.assertEqual(len(j.prices), 1)
+        self.assertEqual(len(j.transactions), 1)
+        self.assertEqual(j.prices[0].commodity, "EUR")
+        self.assertEqual(j.transactions[0].description, "Groceries")
+
+
 if __name__ == "__main__":
     unittest.main()

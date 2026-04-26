@@ -11,7 +11,7 @@ import datetime
 import re
 from decimal import Decimal, InvalidOperation
 
-from PyLedger.models import Amount, Journal, Posting, Transaction
+from PyLedger.models import Amount, Journal, Posting, PriceDirective, Transaction
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +186,29 @@ _AMOUNT_COMMA = re.compile(
     r"\s*([A-Za-z][A-Za-z0-9]*)?"
     r"$"
 )
+
+# Matches a P (market price) directive line.
+#
+# Purpose: detect a P directive and capture its three space-delimited components
+#          so the handler can extract date, commodity symbol, and price amount.
+#
+# Group breakdown:
+#   (1) (\S+)  — raw date string; no whitespace; passed to _parse_simple_date
+#   (2) (\S+)  — COMMODITY1SYMBOL: the commodity being priced, e.g. "€", "$", "AAPL";
+#                no whitespace — multi-word commodity names are not valid in this position
+#   (3) (.+)   — raw COMMODITY2AMOUNT string, e.g. "$1.35", "1.40 USD";
+#                may include a trailing inline comment ("  ; note") — caller strips
+#                with _strip_directive_comment before passing to _parse_amount
+#
+# Edge cases:
+#   - "P 2024-01-01 AAPL $179.00  ; note" → group 3 is "$179.00  ; note";
+#     _strip_directive_comment removes the trailing "  ;" portion
+#   - "P 2024-01-01 AAPL" (no price amount) does not match; caller raises ParseError
+#   - Lines starting with "P" but not "P " never reach this handler because they
+#     are either transaction headers (start with a date digit) or posting lines
+#     (indented)
+#   - "P" alone (no whitespace) does not match because \s+ requires at least one space
+_P_DIRECTIVE = re.compile(r"^P\s+(\S+)\s+(\S+)\s+(.+)$")
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +454,7 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
         default_year = datetime.date.today().year
 
     transactions: list[Transaction] = []
+    prices: list[PriceDirective] = []
     declared_accounts: list[str] = []
     declared_commodities: list[str] = []
     declared_payees: list[str] = []
@@ -661,6 +685,31 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             decimal_mark = dm
             continue
 
+        # --- P directive ---
+        #
+        # Purpose: record a market price declaration (commodity conversion rate
+        #          on a date). Stored in `prices` for later use by valuation
+        #          reports. No subdirectives are defined for P; in_subdirective
+        #          is NOT set.
+        #
+        # Edge cases:
+        #   - "P DATE COMMODITY PRICE  ; comment" → comment stripped before parse
+        #   - A P directive encountered while a transaction is open does NOT close
+        #     the transaction (consistent with other directive handlers); P inside
+        #     a transaction block is malformed but handled leniently
+        #   - A "P " line that fails the full regex (missing commodity or amount)
+        #     raises ParseError immediately
+        if not line[0:1].isspace() and line.startswith("P "):
+            m_p = _P_DIRECTIVE.match(line)
+            if not m_p:
+                raise ParseError(f"invalid P directive: {line!r}", lineno)
+            date_str, commodity1, amount_raw = m_p.groups()
+            amount_clean = _strip_directive_comment(amount_raw)
+            p_date = _parse_simple_date(date_str, lineno, default_year)
+            p_price = _parse_amount(amount_clean, lineno, decimal_mark)
+            prices.append(PriceDirective(date=p_date, commodity=commodity1, price=p_price))
+            continue
+
         # --- Posting line ---
         #
         # Posting lines are conventionally written with 2+ leading spaces or a
@@ -696,6 +745,7 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
 
     return Journal(
         transactions=transactions,
+        prices=prices,
         declared_accounts=declared_accounts,
         declared_commodities=declared_commodities,
         declared_payees=declared_payees,
