@@ -90,6 +90,7 @@ class TestPrefixCommodity(unittest.TestCase):
             "    assets:bank  -£30.00\n"
         )
         amount = journal.transactions[0].postings[0].amount
+        assert amount is not None
         self.assertEqual(amount.quantity, Decimal("30.00"))
         self.assertEqual(amount.commodity, "£")
 
@@ -104,6 +105,7 @@ class TestSuffixCommodity(unittest.TestCase):
             "    assets:bank  -30.00 EUR\n"
         )
         amount = journal.transactions[0].postings[0].amount
+        assert amount is not None
         self.assertEqual(amount.quantity, Decimal("30.00"))
         self.assertEqual(amount.commodity, "EUR")
 
@@ -118,6 +120,7 @@ class TestNegativeAmount(unittest.TestCase):
             "    expenses:food  £5.00\n"
         )
         amount = journal.transactions[0].postings[0].amount
+        assert amount is not None
         self.assertEqual(amount.quantity, Decimal("-5.00"))
         self.assertEqual(amount.commodity, "£")
 
@@ -128,6 +131,7 @@ class TestNegativeAmount(unittest.TestCase):
             "    expenses:food  30.00 EUR\n"
         )
         amount = journal.transactions[0].postings[0].amount
+        assert amount is not None
         self.assertEqual(amount.quantity, Decimal("-30.00"))
         self.assertEqual(amount.commodity, "EUR")
 
@@ -142,6 +146,7 @@ class TestThousandsSeparator(unittest.TestCase):
             "    income:salary  -£1,234.56\n"
         )
         amount = journal.transactions[0].postings[0].amount
+        assert amount is not None
         self.assertEqual(amount.quantity, Decimal("1234.56"))
         self.assertEqual(amount.commodity, "£")
 

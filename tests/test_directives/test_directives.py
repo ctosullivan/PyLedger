@@ -212,34 +212,46 @@ class TestDecimalMarkDirective(unittest.TestCase):
 
     def test_default_period_decimal(self):
         j = parse_string("2024-01-01 T\n    a  £1,234.56\n    b\n")
-        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
+        amt = j.transactions[0].postings[0].amount
+        assert amt is not None
+        self.assertEqual(amt.quantity, Decimal("1234.56"))
 
     def test_explicit_period_decimal(self):
         text = "decimal-mark .\n2024-01-01 T\n    a  £1,234.56\n    b\n"
         j = parse_string(text)
-        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
+        amt = j.transactions[0].postings[0].amount
+        assert amt is not None
+        self.assertEqual(amt.quantity, Decimal("1234.56"))
 
     def test_comma_decimal_basic(self):
         text = "decimal-mark ,\n2024-01-01 T\n    a  £100,50\n    b\n"
         j = parse_string(text)
-        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("100.50"))
+        amt = j.transactions[0].postings[0].amount
+        assert amt is not None
+        self.assertEqual(amt.quantity, Decimal("100.50"))
 
     def test_comma_decimal_with_thousands(self):
         text = "decimal-mark ,\n2024-01-01 T\n    a  £1.234,56\n    b\n"
         j = parse_string(text)
-        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
+        amt = j.transactions[0].postings[0].amount
+        assert amt is not None
+        self.assertEqual(amt.quantity, Decimal("1234.56"))
 
     def test_comma_decimal_suffix_commodity(self):
         text = "decimal-mark ,\n2024-01-01 T\n    a  1.234,56 EUR\n    b\n"
         j = parse_string(text)
         p = j.transactions[0].postings[0]
-        self.assertEqual(p.amount.quantity, Decimal("1234.56"))
-        self.assertEqual(p.amount.commodity, "EUR")
+        amt = p.amount
+        assert amt is not None
+        self.assertEqual(amt.quantity, Decimal("1234.56"))
+        self.assertEqual(amt.commodity, "EUR")
 
     def test_comma_decimal_negative(self):
         text = "decimal-mark ,\n2024-01-01 T\n    a  £1,50\n    b  -£1,50\n"
         j = parse_string(text)
-        self.assertEqual(j.transactions[0].postings[1].amount.quantity, Decimal("-1.50"))
+        amt = j.transactions[0].postings[1].amount
+        assert amt is not None
+        self.assertEqual(amt.quantity, Decimal("-1.50"))
 
     def test_decimal_mark_applies_from_directive_forward(self):
         # Postings before the directive use period-decimal, after use comma-decimal
@@ -255,18 +267,25 @@ class TestDecimalMarkDirective(unittest.TestCase):
             "    b\n"
         )
         j = parse_string(text)
-        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
-        self.assertEqual(j.transactions[1].postings[0].amount.quantity, Decimal("1234.56"))
+        amt0 = j.transactions[0].postings[0].amount
+        amt1 = j.transactions[1].postings[0].amount
+        assert amt0 is not None and amt1 is not None
+        self.assertEqual(amt0.quantity, Decimal("1234.56"))
+        self.assertEqual(amt1.quantity, Decimal("1234.56"))
 
     def test_decimal_mark_semicolon_comment_stripped(self):
         text = "decimal-mark .  ; period decimal\n2024-01-01 T\n    a  $1.50\n    b\n"
         j = parse_string(text)
-        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1.50"))
+        amt = j.transactions[0].postings[0].amount
+        assert amt is not None
+        self.assertEqual(amt.quantity, Decimal("1.50"))
 
     def test_decimal_mark_hash_comment_stripped(self):
         text = "decimal-mark .  # period decimal\n2024-01-01 T\n    a  $1.50\n    b\n"
         j = parse_string(text)
-        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1.50"))
+        amt = j.transactions[0].postings[0].amount
+        assert amt is not None
+        self.assertEqual(amt.quantity, Decimal("1.50"))
 
     def test_invalid_decimal_mark_raises(self):
         from PyLedger.parser import ParseError
@@ -284,7 +303,9 @@ class TestDecimalMarkDirective(unittest.TestCase):
             "    b\n"
         )
         j = parse_string(text)
-        self.assertEqual(j.transactions[0].postings[0].amount.quantity, Decimal("1234.56"))
+        amt = j.transactions[0].postings[0].amount
+        assert amt is not None
+        self.assertEqual(amt.quantity, Decimal("1234.56"))
 
 
 # ---------------------------------------------------------------------------
