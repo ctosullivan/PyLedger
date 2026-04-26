@@ -84,7 +84,7 @@ Implement a working parser so that `.journal` files can be loaded into memory as
 
 ---
 
-## Milestone 2 — Core Reports `[PLANNED]`
+## Milestone 2 — Core Reports `[IN PROGRESS]`
 
 > **Scope to be confirmed by user before implementation begins.**
 

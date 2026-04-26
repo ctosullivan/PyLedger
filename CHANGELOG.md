@@ -14,6 +14,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — chore: release v0.2.0 and start Milestone 2
+
+**Human:** Bump version to 0.2.0 and mark Milestone 2 (Core Reports) as in progress.
+**Claude:** Updated `__version__` in `PyLedger/__init__.py` and `version` in `pyproject.toml` from `0.1.2` to `0.2.0`. Updated `ROADMAP.md` to mark Milestone 2 `[IN PROGRESS]`.
+
+---
+
 ### [Milestone 1 — Journal Parser] — 2026-04-26
 
 Full detail: [dev-docs/changelog/MILESTONE-1.md](dev-docs/changelog/MILESTONE-1.md)
