@@ -662,5 +662,153 @@ class TestPDirective(unittest.TestCase):
         self.assertEqual(j.transactions[0].description, "Groceries")
 
 
+class TestAliasDirective(unittest.TestCase):
+    def _txn(self, text: str) -> "Journal":
+        return parse_string(text)
+
+    def test_basic_alias_exact_match(self):
+        text = "alias checking = assets:bank\n\n2024-01-01 T\n    checking  $10\n    income\n"
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "assets:bank")
+
+    def test_basic_alias_subaccount(self):
+        text = "alias checking = assets:bank\n\n2024-01-01 T\n    checking:savings  $10\n    income\n"
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "assets:bank:savings")
+
+    def test_basic_alias_no_match_non_prefix(self):
+        text = "alias checking = assets:bank\n\n2024-01-01 T\n    other:checking  $10\n    income\n"
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "other:checking")
+
+    def test_basic_alias_no_match_unrelated(self):
+        text = "alias expenses = costs\n\n2024-01-01 T\n    income  $10\n    assets\n"
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "income")
+
+    def test_regex_alias_basic_substitution(self):
+        text = "alias /expenses/ = costs\n\n2024-01-01 T\n    expenses:food  $10\n    income\n"
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "costs:food")
+
+    def test_regex_alias_capture_groups(self):
+        text = (
+            r"alias /^(.+):bank:([^:]+)/ = \1:\2"
+            "\n\n2024-01-01 T\n    assets:bank:checking  $10\n    income\n"
+        )
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "assets:checking")
+
+    def test_regex_alias_case_insensitive(self):
+        text = "alias /EXPENSES/ = costs\n\n2024-01-01 T\n    expenses:food  $10\n    income\n"
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "costs:food")
+
+    def test_multiple_aliases_lifo_order(self):
+        # LIFO: most-recently-defined alias (costs→budget) is applied FIRST.
+        # "expenses" does not match costs→budget, then matches expenses→costs.
+        # Result: "expenses" → "costs" (not "budget").
+        text = (
+            "alias expenses = costs\n"
+            "alias costs = budget\n"
+            "\n"
+            "2024-01-01 T\n"
+            "    expenses  $10\n"
+            "    income\n"
+        )
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "costs")
+
+    def test_end_aliases_clears_rules(self):
+        text = (
+            "alias a = A\n"
+            "\n"
+            "2024-01-01 First\n"
+            "    a  $1\n"
+            "    b\n"
+            "\n"
+            "end aliases\n"
+            "\n"
+            "2024-01-02 Second\n"
+            "    a  $1\n"
+            "    b\n"
+        )
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "A")
+        self.assertEqual(j.transactions[1].postings[0].account, "a")
+
+    def test_end_aliases_without_prior_aliases(self):
+        text = "end aliases\n\n2024-01-01 T\n    a  $1\n    b\n"
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "a")
+
+    def test_alias_applies_to_account_directive(self):
+        text = "alias old = new\naccount old:sub\n"
+        j = self._txn(text)
+        self.assertIn("new:sub", j.declared_accounts)
+        self.assertNotIn("old:sub", j.declared_accounts)
+
+    def test_alias_inside_block_comment_ignored(self):
+        text = (
+            "comment\n"
+            "alias a = A\n"
+            "end comment\n"
+            "\n"
+            "2024-01-01 T\n"
+            "    a  $1\n"
+            "    b\n"
+        )
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "a")
+
+    def test_alias_semicolon_comment_stripped(self):
+        text = "alias old = new  ; this is a comment\n\n2024-01-01 T\n    old  $1\n    b\n"
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "new")
+
+    def test_alias_hash_comment_stripped(self):
+        text = "alias old = new  # this is a comment\n\n2024-01-01 T\n    old  $1\n    b\n"
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "new")
+
+    def test_end_aliases_with_comment(self):
+        text = (
+            "alias a = A\n"
+            "\n"
+            "2024-01-01 Before\n"
+            "    a  $1\n"
+            "    b\n"
+            "\n"
+            "end aliases  ; clear all\n"
+            "\n"
+            "2024-01-02 After\n"
+            "    a  $1\n"
+            "    b\n"
+        )
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "A")
+        self.assertEqual(j.transactions[1].postings[0].account, "a")
+
+    def test_transactions_before_alias_unaffected(self):
+        text = (
+            "2024-01-01 Before\n"
+            "    a  $1\n"
+            "    b\n"
+            "\n"
+            "alias a = A\n"
+            "\n"
+            "2024-01-02 After\n"
+            "    a  $1\n"
+            "    b\n"
+        )
+        j = self._txn(text)
+        self.assertEqual(j.transactions[0].postings[0].account, "a")
+        self.assertEqual(j.transactions[1].postings[0].account, "A")
+
+    def test_invalid_regex_alias_raises(self):
+        with self.assertRaises(ParseError):
+            parse_string("alias /[invalid/ = x\n")
+
+
 if __name__ == "__main__":
     unittest.main()

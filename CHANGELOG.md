@@ -17,6 +17,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — feat: alias directive (account name rewriting)
+
+**Human:** Implement the alias directive which rewrites account names before generating reports, per hledger 1.52 spec. Command-line `--alias` option deferred to a future milestone.
+
+**Claude:** Updated `_TWO_SPACE_SEP` to `r"\s{2,}[;#]"` so that both `;` and `#` are recognised as inline comment introducers in all directive bodies (affects all existing directive handlers). Added `_ALIAS_DIRECTIVE` and `_END_ALIASES` module-level regexes with full documentation. Added `_parse_alias_body()` private helper (parses basic and regex alias bodies, validates regex at parse time, raises `ParseError` for malformed input). Added `_apply_aliases()` private helper (applies alias list in LIFO order; basic aliases use prefix matching; regex aliases use `re.sub` with IGNORECASE and backreference support). Added `aliases: list[tuple[str, str, bool]]` state variable to `parse_string()`. Added alias handler and end-aliases handler in the main loop (after P directive handler, before posting handler); end-aliases handler uses `_strip_directive_comment` before matching so trailing `;`/`#` comments are tolerated. Applied aliases in the account directive handler and in the posting handler. Added `TestAliasDirective` (17 tests) to `test_parser.py`. Updated `hledger-compatibility.md` to mark alias directive `[IMPLEMENTED]` and document the file-scoping deviation. Updated `docs/journal-format.md` with user-facing alias documentation. No changes to `models.py`, `loader.py`, or `api-spec.md`.
+
+---
+
 ### [Unreleased] — feat: P directive parsing (market price declarations)
 
 **Human:** Implement the P directive which declares a market price relationship between two commodities, per hledger 1.52 spec.

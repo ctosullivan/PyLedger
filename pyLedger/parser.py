@@ -18,22 +18,22 @@ from PyLedger.models import Amount, Journal, Posting, PriceDirective, Transactio
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-# Matches the two-or-more-space+semicolon comment separator used in directives.
+# Matches the two-or-more-space + comment-character separator used in directives.
 #
 # Purpose: split directive lines on the boundary between directive body and
 #          inline comment, per hledger's rule that a single space may appear
 #          inside a body value (e.g. an account name like "expenses:fun money")
-#          but two or more spaces before a semicolon always begin a comment.
+#          but two or more spaces before a comment character always begin a comment.
 #
-# Pattern: \s{2,};
-#   \s{2,} — two or more whitespace characters (spaces or tabs)
-#   ;      — the semicolon that opens the comment
+# Pattern: \s{2,}[;#]
+#   \s{2,}  — two or more whitespace characters (spaces or tabs)
+#   [;#]    — semicolon or hash: both are recognised comment introducers in PyLedger
 #
 # Edge cases:
-#   - A single space before ';' is NOT a separator (the ';' belongs to the body)
+#   - A single space before ';' or '#' is NOT a separator (belongs to the body)
 #   - Only the FIRST match is used (re.split with maxsplit=1)
 #   - Lines with no such pattern return the original body unchanged
-_TWO_SPACE_SEP = re.compile(r"\s{2,};")
+_TWO_SPACE_SEP = re.compile(r"\s{2,}[;#]")
 
 
 class ParseError(ValueError):
@@ -209,6 +209,47 @@ _AMOUNT_COMMA = re.compile(
 #     (indented)
 #   - "P" alone (no whitespace) does not match because \s+ requires at least one space
 _P_DIRECTIVE = re.compile(r"^P\s+(\S+)\s+(\S+)\s+(.+)$")
+
+# Matches an alias directive line.
+#
+# Purpose: detect an alias directive and capture the entire body after
+#          "alias " so the handler can determine whether it is a basic
+#          alias or a regex alias and parse it accordingly.
+#
+# Group breakdown:
+#   (1) (.+)  — the raw alias body, e.g. "checking = assets:bank" or
+#               "/^(.+):bank/ = \1" or "/old/=new  ; note" or "/old/=new  # note";
+#               inline comments (  ; or  #) are stripped by _strip_directive_comment
+#               before further parsing
+#
+# Edge cases:
+#   - "alias" with no body does not match because \s+ requires at least
+#     one space and (.+) requires at least one character after it
+#   - "aliases" (plural) does not match because \s+ requires whitespace
+#     immediately after the exact word "alias"
+#   - Leading whitespace on line: the outer guard (not line[0:1].isspace())
+#     prevents indented lines from ever reaching this check
+_ALIAS_DIRECTIVE = re.compile(r"^alias\s+(.+)$")
+
+# Matches an end aliases directive line (exact keyword, no trailing content).
+#
+# Purpose: detect the "end aliases" directive that clears all currently
+#          active alias rules from the parse state.  The handler passes the
+#          line through _strip_directive_comment first, so trailing "; comment"
+#          and "# comment" sequences (with two-or-more-space prefix) are stripped
+#          before this regex is applied.
+#
+# Group breakdown:
+#   No capture groups — presence of the directive is sufficient.
+#
+# Edge cases:
+#   - "end  aliases" (two spaces between words) matches because \s+ allows
+#     multiple spaces — consistent with hledger's lenient whitespace handling
+#   - "end aliases  ; comment" or "end aliases  # comment": the handler strips
+#     the trailing comment via _strip_directive_comment before matching, so
+#     both forms are recognised correctly
+#   - "end aliasesX" does not match because $ anchors immediately after "aliases"
+_END_ALIASES = re.compile(r"^end\s+aliases$")
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +469,63 @@ def _parse_posting(line: str, lineno: int, decimal_mark: str = ".") -> Posting:
     )
 
 
+def _parse_alias_body(body: str, lineno: int) -> tuple[str, str, bool]:
+    """Parse alias directive body; return (old_or_pattern, replacement, is_regex)."""
+    if body.startswith("/"):
+        # Regex alias: /PATTERN/ = REPLACEMENT
+        # Scan forward to find the closing unescaped '/'.
+        i = 1
+        while i < len(body):
+            if body[i] == "/" and body[i - 1] != "\\":
+                break
+            i += 1
+        if i >= len(body):
+            raise ParseError(f"unclosed regex in alias directive: {body!r}", lineno)
+        pattern_str = body[1:i].replace("\\/", "/")
+        rest = body[i + 1 :].lstrip()
+        if not rest.startswith("="):
+            raise ParseError(f"missing '=' in alias directive: {body!r}", lineno)
+        replacement = rest[1:].lstrip()
+        try:
+            re.compile(pattern_str, re.IGNORECASE)  # validate regex early
+        except re.error as exc:
+            raise ParseError(f"invalid regex in alias directive: {exc}", lineno)
+        return (pattern_str, replacement, True)
+    else:
+        # Basic alias: OLD = NEW  (spaces around '=' are optional)
+        if "=" not in body:
+            raise ParseError(f"missing '=' in alias directive: {body!r}", lineno)
+        idx = body.index("=")
+        old = body[:idx].rstrip()
+        new = body[idx + 1 :].lstrip()
+        if not old:
+            raise ParseError(f"empty account name in alias directive: {body!r}", lineno)
+        return (old, new, False)
+
+
+def _apply_aliases(account: str, aliases: list[tuple[str, str, bool]]) -> str:
+    """Apply active alias rules to an account name, most-recently-defined first (LIFO).
+
+    Basic aliases match as an exact name or colon-delimited prefix.
+    Regex aliases use re.sub with IGNORECASE and support backreferences.
+    """
+    for old, new, is_regex in reversed(aliases):
+        if is_regex:
+            # Purpose: substitute matching substring in account name.
+            # re.IGNORECASE per hledger spec ("REGEX is case-insensitive as usual").
+            # Backreferences in `new` (e.g. \1) are supported by re.sub natively.
+            account = re.sub(old, new, account, flags=re.IGNORECASE)
+        else:
+            # Basic alias: replace OLD as exact match or as colon-delimited prefix.
+            # "checking" rewrites "checking" → new and "checking:a" → new + ":a"
+            # but NOT "other:checking" (prefix boundary enforced by + ":").
+            if account == old:
+                account = new
+            elif account.startswith(old + ":"):
+                account = new + account[len(old):]
+    return account
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -459,6 +557,7 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
     declared_commodities: list[str] = []
     declared_payees: list[str] = []
     declared_tags: list[str] = []
+    aliases: list[tuple[str, str, bool]] = []  # (old_or_pattern, replacement, is_regex)
     decimal_mark: str = "."  # updated by decimal-mark directive
     current_txn: Transaction | None = None
     in_block_comment = False
@@ -593,7 +692,7 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             body = line[len("account"):].lstrip()
             account_name = _strip_directive_comment(body)
             if account_name:
-                declared_accounts.append(account_name)
+                declared_accounts.append(_apply_aliases(account_name, aliases))
             in_subdirective = True
             continue
 
@@ -710,6 +809,45 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             prices.append(PriceDirective(date=p_date, commodity=commodity1, price=p_price))
             continue
 
+        # --- alias directive ---
+        #
+        # Purpose: register an account-name alias rule. Rules accumulate in `aliases`
+        #          and are applied to every posting account name parsed after this point.
+        #          Basic aliases match as an exact name or colon-delimited prefix;
+        #          regex aliases match any substring (case-insensitive, backrefs supported).
+        #          Aliases are also applied to account names in `account` directives.
+        #          No subdirectives; in_subdirective is NOT set.
+        #
+        # Edge cases:
+        #   - "alias /invalid[/ = x" → ParseError (invalid regex detected early)
+        #   - "alias  = new" (empty OLD) → ParseError
+        #   - "alias old = new  ; comment" or "alias old = new  # comment"
+        #     → comment stripped by _strip_directive_comment before body parse
+        #   - Rules accumulate; use "end aliases" to clear all
+        if not line[0:1].isspace() and _ALIAS_DIRECTIVE.match(line):
+            m_alias = _ALIAS_DIRECTIVE.match(line)
+            body = _strip_directive_comment(m_alias.group(1))
+            old, new, is_regex = _parse_alias_body(body, lineno)
+            aliases.append((old, new, is_regex))
+            continue
+
+        # --- end aliases directive ---
+        #
+        # Purpose: clear all active alias rules so postings after this line are
+        #          not rewritten. A no-op if no aliases are currently active.
+        #          _strip_directive_comment is applied first so that trailing
+        #          "; comment" or "# comment" (with two-space separation) are
+        #          stripped before the keyword is matched.
+        #
+        # Edge cases:
+        #   - "end aliases  ; done" or "end aliases  # done" → comment stripped,
+        #     directive recognised correctly
+        #   - "end aliases" with no active aliases: silently clears empty list
+        #   - Inside a block comment: skipped by the in_block_comment guard above
+        if not line[0:1].isspace() and _END_ALIASES.match(_strip_directive_comment(line)):
+            aliases.clear()
+            continue
+
         # --- Posting line ---
         #
         # Posting lines are conventionally written with 2+ leading spaces or a
@@ -727,6 +865,12 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             raise ParseError("posting found outside a transaction block", lineno)
         if current_txn is not None:
             posting = _parse_posting(stripped, lineno, decimal_mark)
+            if aliases:
+                posting = Posting(
+                    account=_apply_aliases(posting.account, aliases),
+                    amount=posting.amount,
+                    source_line=posting.source_line,
+                )
             # Enforce at-most-one elided amount per block
             if posting.amount is None:
                 elided = [p for p in current_txn.postings if p.amount is None]

@@ -197,23 +197,82 @@ Only `.journal` and `.ledger` files may be included; other extensions raise a
 
 ## Alias Directive (Account Name Rewriting)
 
-Rewrites account names in following entries, within the current file.
+Rewrites account names at parse time. Useful for shortening entry data,
+adapting old journals to a new chart of accounts, or combining accounts for
+a report.
+
+### Basic alias
 
 ```
-; Simple substitution
-alias assets:savings=assets:bank:savings
-
-; Regex substitution (backreferences supported)
-alias /\./=:
-
-; Reset all active aliases
-end aliases
+alias checking = assets:bank:wells fargo:checking
 ```
 
-Syntax: `alias OLD=NEW` or `alias /REGEX/=REPLACEMENT`
+Syntax: `alias OLD = NEW` (spaces around `=` are optional)
 
-Aliases apply from the directive to `end aliases` or end of file, whichever
-comes first.
+PyLedger replaces any account name that **equals** `OLD`, or that **begins**
+with `OLD:` (subaccounts). For example, the alias above rewrites:
+
+- `checking` → `assets:bank:wells fargo:checking`
+- `checking:savings` → `assets:bank:wells fargo:checking:savings`
+
+Accounts that contain `OLD` elsewhere (e.g. `other:checking`) are **not** affected.
+
+### Regex alias
+
+```
+alias /^(.+):bank:([^:]+)/ = \1:\2
+; rewrites "assets:bank:wells fargo:checking" → "assets:wells fargo"
+```
+
+Syntax: `alias /REGEX/ = REPLACEMENT`
+
+Any part of an account name matched by `REGEX` is replaced with `REPLACEMENT`.
+The regex is case-insensitive. Backreferences `\1`, `\2`, etc. refer to
+parenthesised capture groups in `REGEX`.
+
+To match a literal `/`, escape it with a backslash: `\/`.
+
+### Multiple aliases and `end aliases`
+
+Aliases accumulate from their definition point until `end aliases` or end of
+file. They also apply to account names declared with the `account` directive.
+
+```
+alias a = alpha
+alias b = beta
+
+2024-01-01 Rent
+    a  $1000          ; → alpha  $1000
+    b                 ; → beta
+
+end aliases           ; clears both rules
+
+2024-01-02 Coffee
+    a  $5             ; unchanged: alias no longer active
+    b
+```
+
+**Application order:** when multiple aliases are active, the most recently
+defined alias is applied first (LIFO). Each alias sees the result of the
+aliases applied after it.
+
+### Inline comments
+
+Both `;` and `#` are recognised as inline comment introducers on alias lines
+(requires two or more spaces before the comment character):
+
+```
+alias old = new  ; this comment is ignored
+alias old = new  # this comment is also ignored
+end aliases  ; clear all rules
+```
+
+### Scoping
+
+Alias rules are local to the `parse_string()` call that processes them. They
+do **not** propagate into files loaded via `include` directives — this is a
+known deviation from hledger 1.52 behaviour (where aliases do propagate into
+included files).
 
 ---
 
