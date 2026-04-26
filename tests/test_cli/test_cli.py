@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from PyLedger.cli import _resolve_files, main
 
-FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+FIXTURES = pathlib.Path(__file__).parent.parent / "fixtures"
 SAMPLE_JOURNAL = FIXTURES / "sample.journal"
 
 _SIMPLE_JOURNAL = textwrap.dedent("""\

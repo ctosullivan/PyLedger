@@ -17,6 +17,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — chore: test refactor, Black formatter config, and directive # comment tests
+
+**Human:** Refactor test suite into named subfolders (`test_parser/`, `test_directives/`, `test_reports/`), add Black formatter VS Code and pyproject.toml config, and ensure all directive test classes cover `#` inline comment stripping (not just `;`).
+
+**Claude:** Split `tests/test_parser.py` (814 lines, 19 classes) into `tests/test_parser/test_parser.py` (12 core parser test classes) and `tests/test_directives/test_directives.py` (7 directive test classes). Deleted the original flat file. Created `tests/test_reports/` directory earmarked for future report tests. Each test subdirectory has an `__init__.py` — required by Python 3.13's `unittest discover` to recurse into subdirectories (namespace-package-only subdirectories are silently skipped). Updated `tests/README.md` with new folder layout, updated run commands (now `-s tests -t . -v`), and added note about the `".."` in the fixtures path for subdirectory test files. Updated `CLAUDE.md` test run command and folder structure diagram. Created `.vscode/settings.json` with Black formatter on-save settings. Added `[tool.black]` section to `pyproject.toml`. Renamed 5 existing `;`-only comment tests across `TestAccountDirective`, `TestCommodityDirective`, `TestPayeeDirective`, `TestTagDirective`, and `TestPDirective` to `_semicolon_comment_stripped` for naming consistency with `TestAliasDirective`. Added 6 new `#` comment tests (`test_account_hash_comment_stripped`, `test_commodity_hash_comment_stripped`, `test_payee_hash_comment_stripped`, `test_tag_hash_comment_stripped`, `test_decimal_mark_semicolon_comment_stripped`, `test_decimal_mark_hash_comment_stripped`, `test_p_directive_hash_comment_stripped`).
+
+---
+
+### [Unreleased] — chore: move test_checks, test_cli, test_loader into subfolders
+
+**Human:** Move `test_checks.py`, `test_cli.py`, and `test_loader.py` into matching subfolders (`test_checks/`, `test_cli/`, `test_loader/`) for consistency with the folder structure established in the previous refactor.
+
+**Claude:** Created `tests/test_checks/test_checks.py`, `tests/test_cli/test_cli.py`, and `tests/test_loader/test_loader.py` with updated `FIXTURES` paths (`pathlib.Path(__file__).parent.parent / "fixtures"`). Added `__init__.py` to each new subdirectory (and retroactively to `test_parser/` and `test_directives/` — the previous refactor omitted these, causing Python 3.13 `unittest discover` to silently skip those subdirectories, which went unnoticed because the flat files were still counted; with all `__init__.py` files in place, all 265 tests are now discovered and run). Deleted the three original flat test files. Updated `tests/README.md` and `CLAUDE.md` folder structure diagram. All 265 tests pass.
+
+---
+
 ### [Unreleased] — feat: alias directive (account name rewriting)
 
 **Human:** Implement the alias directive which rewrites account names before generating reports, per hledger 1.52 spec. Command-line `--alias` option deferred to a future milestone.

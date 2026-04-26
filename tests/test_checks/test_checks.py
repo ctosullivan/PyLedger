@@ -29,7 +29,7 @@ from PyLedger.checks import (
 from PyLedger.models import Amount, Journal, Posting, Transaction
 from PyLedger.parser import parse_string
 
-FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+FIXTURES = pathlib.Path(__file__).parent.parent / "fixtures"
 SAMPLE_JOURNAL = FIXTURES / "sample.journal"
 STRICT_VALID = FIXTURES / "strict_valid.journal"
 STRICT_MISSING_ACCOUNTS = FIXTURES / "strict_missing_accounts.journal"

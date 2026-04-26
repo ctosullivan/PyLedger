@@ -59,7 +59,7 @@ If a user request would affect any of these, Claude must:
 
 Run the full test suite:
 ```
-python -m unittest tests.test_parser -v
+python -m unittest discover -s tests -t . -v
 ```
 
 ---
@@ -219,6 +219,23 @@ PyLedger/
 │   ├── __init__.py
 │   ├── fixtures/
 │   │   └── sample.journal
+│   ├── test_parser/             ← core transaction and amount parsing tests
+│   │   ├── __init__.py
+│   │   └── test_parser.py
+│   ├── test_directives/         ← directive parsing tests
+│   │   ├── __init__.py
+│   │   └── test_directives.py
+│   ├── test_checks/             ← validation check tests
+│   │   ├── __init__.py
+│   │   └── test_checks.py
+│   ├── test_cli/                ← CLI integration tests
+│   │   ├── __init__.py
+│   │   └── test_cli.py
+│   ├── test_loader/             ← multi-file loading tests
+│   │   ├── __init__.py
+│   │   └── test_loader.py
+│   ├── test_reports/            ← earmarked for future report tests
+│   ├── test_reports.py
 │   └── README.md
 └── PyLedger/
     ├── __init__.py

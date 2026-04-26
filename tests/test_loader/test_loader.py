@@ -9,7 +9,7 @@ import unittest
 from PyLedger.loader import load_journal, merge_journals
 from PyLedger.parser import ParseError
 
-FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+FIXTURES = pathlib.Path(__file__).parent.parent / "fixtures"
 SAMPLE_JOURNAL = FIXTURES / "sample.journal"
 
 

@@ -15,3 +15,7 @@ PyLedger = "PyLedger.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["PyLedger*"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
