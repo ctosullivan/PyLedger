@@ -25,7 +25,7 @@ with no errors (empty suite passes).
 
 ---
 
-## Milestone 1 — Journal Parser `[IN PROGRESS]`
+## Milestone 1 — Journal Parser `[DONE]`
 
 Implement a working parser so that `.journal` files can be loaded into memory as
 `Journal` objects, including key hledger directives.
