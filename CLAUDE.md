@@ -12,6 +12,38 @@ plain-text accounting tool.
 
 ---
 
+## Knowledge Base
+
+Project-specific knowledge that Claude cannot infer from code lives in `knowledge/`:
+
+| File | Purpose |
+|---|---|
+| `knowledge/DECISIONS.md` | Non-obvious judgment calls — what was chosen, why, and what was rejected |
+| `knowledge/EDGE_CASES.md` | Human-identified edge cases that are non-obvious or regression-prone |
+| `knowledge/ANTIPATTERNS.md` | Approaches tried and abandoned — do not revisit without reading these first |
+| `knowledge/DOMAIN_RULES.md` | Tacit hledger format rules and PyLedger invariants Claude can't infer from code |
+
+**When to update:** Add an entry to the relevant file whenever a non-obvious decision is made, an edge case is identified, or an approach is abandoned. Do this **in the same response** as the change.
+
+---
+
+## Context File (`CONTEXT.md`)
+
+`CONTEXT.md` at the project root is Claude's working memory between sessions. It records where we are *right now* — not permanent history (that goes in `knowledge/` or `CHANGELOG.md`).
+
+**Claude must overwrite `CONTEXT.md` completely at the end of every response that makes a substantive change**, replacing all sections with the current state. The file is throwaway by design.
+
+Sections to maintain:
+- **Current Task** — one sentence: what we're trying to achieve
+- **Where We Are** — the literal next step (not a summary)
+- **Decisions In Flight** — session-level calls not yet in `knowledge/DECISIONS.md`
+- **Files Currently Relevant** — only files needed for the immediate next step
+- **Blockers / Open Questions** — unresolved items needing a human decision
+- **What NOT To Revisit** — closed decisions Claude might otherwise re-litigate
+- **Recent Git State** — `git log --oneline -5` output
+
+---
+
 ## Documentation Sync Rules (CRITICAL)
 
 Whenever any of the following change, the corresponding doc(s) **MUST** be updated
@@ -197,6 +229,7 @@ Rules:
 ```
 PyLedger/
 ├── CLAUDE.md
+├── CONTEXT.md                       ← Claude's session working memory (overwrite each session)
 ├── README.md
 ├── ROADMAP.md
 ├── CHANGELOG.md
@@ -204,6 +237,11 @@ PyLedger/
 ├── MANIFEST.in
 ├── .gitignore
 ├── pyproject.toml
+├── knowledge/                       ← permanent project knowledge base
+│   ├── DECISIONS.md                 ← non-obvious judgment calls and why
+│   ├── EDGE_CASES.md                ← human-identified edge cases
+│   ├── ANTIPATTERNS.md              ← approaches tried and abandoned
+│   └── DOMAIN_RULES.md             ← tacit hledger/domain rules
 ├── dev-docs/                        ← AI-workflow / developer docs
 │   ├── api-spec.md
 │   ├── architecture.md

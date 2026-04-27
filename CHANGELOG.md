@@ -14,6 +14,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — chore: add knowledge base and CONTEXT.md
+
+**Human:** Establish a permanent project knowledge base (`knowledge/`) and a session working-memory file (`CONTEXT.md`), and update `CLAUDE.md` to maintain both going forward.
+
+**Claude:** Created `knowledge/DECISIONS.md` (8 entries covering non-obvious calls from Milestone 1), `knowledge/EDGE_CASES.md` (11 entries), `knowledge/ANTIPATTERNS.md` (4 entries), and `knowledge/DOMAIN_RULES.md` (9 domain rules). Created `CONTEXT.md` with current Milestone 2 state. Updated `CLAUDE.md` with a new Knowledge Base section, a Context File section (with maintenance instructions), and added `knowledge/` and `CONTEXT.md` to the folder structure diagram.
+
+---
+
 ### [Unreleased] — chore: release v0.2.0 and start Milestone 2
 
 **Human:** Bump version to 0.2.0 and mark Milestone 2 (Core Reports) as in progress.
