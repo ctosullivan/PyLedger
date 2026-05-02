@@ -54,8 +54,8 @@ rows         = journal.register()   # list[RegisterRow] — chronological postin
 summary      = journal.stats()      # JournalStats — counts, date range, etc.
 ```
 
-> **Note:** Report methods currently raise `NotImplementedError` — they will
-> be implemented in Milestone 2.
+All methods accept an optional `query=` parameter for filtering — see the
+[Filtering with Query](#filtering-with-query) section below.
 
 ---
 
@@ -94,6 +94,118 @@ price.date        # datetime.date
 price.commodity   # str     — the commodity being priced, e.g. "AAPL"
 price.price       # Amount  — the price expressed as an Amount
 ```
+
+---
+
+## Filtering with Query
+
+All four report functions accept an optional `query=` parameter that controls
+which transactions and postings are included.
+
+```python
+import PyLedger
+from PyLedger import Query
+import datetime
+
+journal = PyLedger.load("myfile.journal")
+
+# Show only expense account balances
+balances = journal.balance(query=Query(account="expenses"))
+
+# Show balances for the current year only
+balances = journal.balance(query=Query(
+    date_from=datetime.date(2024, 1, 1),
+    date_to=datetime.date(2024, 12, 31),
+))
+
+# Combine filters: food expenses in Q1
+rows = journal.register(query=Query(
+    account="expenses:food",
+    date_from=datetime.date(2024, 1, 1),
+    date_to=datetime.date(2024, 3, 31),
+))
+
+# Top-level account balances only (depth rollup)
+top_level = journal.balance(query=Query(depth=1))
+# → {"assets": Decimal("9641"), "expenses": Decimal("1359"), ...}
+```
+
+`Query` fields at a glance:
+
+| Field | Type | Effect |
+|---|---|---|
+| `account` | `str \| None` | Include only postings whose account matches (substring or regex) |
+| `not_account` | `str \| None` | Exclude postings whose account matches |
+| `payee` | `str \| None` | Include only transactions whose description matches |
+| `date_from` | `date \| None` | Include only transactions on or after this date |
+| `date_to` | `date \| None` | Include only transactions on or before this date |
+| `depth` | `int \| None` | For `balance()`: roll up to this depth. For `accounts()`/`register()`: exclude deeper accounts |
+
+Patterns in `account`, `not_account`, and `payee` are matched as plain
+case-insensitive substrings unless they contain a regex metacharacter (e.g. `^`,
+`$`, `.`, `*`), in which case `re.search` is used.
+
+---
+
+## Custom Report Layouts with ReportSpec
+
+`ReportSpec` and `ReportSection` let you define structured, named reports with
+multiple account groups, sign control, and depth overrides.
+
+```python
+import PyLedger
+from PyLedger import Query, ReportSpec, ReportSection, balance_from_spec
+import datetime
+
+journal = PyLedger.load("myfile.journal")
+
+# Build an income statement spec
+spec = ReportSpec(
+    name="Income Statement",
+    sections=(
+        ReportSection(
+            "Income",
+            accounts=("income",),
+            invert=True,   # income carries negative balances; invert shows as positive
+        ),
+        ReportSection(
+            "Expenses",
+            accounts=("expenses",),
+            exclude=("expenses:transfers",),  # skip inter-account transfers
+        ),
+    ),
+)
+
+# Run the report (optionally filtered to a date range)
+results = balance_from_spec(
+    journal,
+    spec,
+    query=Query(
+        date_from=datetime.date(2024, 1, 1),
+        date_to=datetime.date(2024, 12, 31),
+    ),
+)
+
+for section_result in results:
+    print(f"\n{section_result.section.name}")
+    for account, balance in sorted(section_result.rows.items()):
+        print(f"  {account:<40}  {balance:>12}")
+    print(f"  {'Total ' + section_result.section.name:<40}  {section_result.subtotal:>12}")
+```
+
+`balance_from_spec` returns one `ReportSectionResult` per section:
+
+```python
+@dataclass
+class ReportSectionResult:
+    section:  ReportSection          # the spec section that produced this result
+    rows:     dict[str, Decimal]     # account → net balance (after invert)
+    subtotal: Decimal                # sum of all rows (after invert)
+```
+
+> **Note:** Defining report specs inside journal files via comment directives
+> (`; report` / `; end report`) is planned for Milestone 3. In the current
+> release, specs are constructed programmatically only.
 
 ---
 

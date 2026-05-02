@@ -97,3 +97,20 @@ Human-identified cases that are non-obvious or would be easy to regress. Each en
 **Trigger:** `account assets:bank  ; checking` or `commodity $  # US dollar`.
 **Expected behaviour:** Comment stripped; only the account/payee/commodity name stored.
 **Status:** Handled ✓ (all directive handlers call `_strip_directive_comment`)
+
+---
+
+## EC-012 — Two consecutive transactions with identical date and description in `register`
+
+**Trigger:** Two separate transactions share the same `date` and `description` (e.g., two
+salary postings on the same day with the same payee string).
+**Expected behaviour (hledger):** Each transaction starts a new block in the register view;
+the second transaction's first posting shows the date and description.
+**Actual behaviour (PyLedger CLI):** The continuation-row detection key is `(date, description)`,
+so the second transaction's first posting is silently treated as a continuation row of the
+first — the date and description are blanked.
+**Status:** Known limitation — not handled. The `RegisterRow` dataclass does not carry a
+transaction identity field, so the CLI cannot distinguish the boundary without a deeper change.
+**Workaround:** None currently. A future fix would either add a transaction ID/index to
+`RegisterRow`, or pass grouped rows from `register()`.
+**Source:** Identified during register CLI formatting work, 2026-05-02.

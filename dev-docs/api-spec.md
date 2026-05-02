@@ -147,14 +147,116 @@ called directly (no file I/O), it remains `0`.
 **Report methods** (delegate to `PyLedger.reports` via lazy import):
 
 ```python
-def balance(self, accounts: list[str] | None = None) -> dict[str, Decimal]: ...
-def register(self, accounts: list[str] | None = None) -> list[RegisterRow]: ...
+def balance(self, accounts: list[str] | None = None,
+            query: Query | None = None) -> dict[str, Decimal]: ...
+def register(self, accounts: list[str] | None = None,
+             query: Query | None = None) -> list[RegisterRow]: ...
 def accounts(self) -> list[str]: ...
-def stats(self) -> JournalStats: ...
+def stats(self, query: Query | None = None) -> JournalStats: ...
 ```
 
-All four methods are currently `[STUB — Milestone 2]` — they raise
-`NotImplementedError` until the reports module is implemented.
+The `accounts` parameter on `balance()` and `register()` is deprecated — use `query=`
+for new code. When both are supplied, `query` takes precedence.
+
+---
+
+### `Query` `[IMPLEMENTED — Milestone 2]`
+
+```python
+@dataclass
+class Query:
+    account:     str | None = None        # substring or regex; matches posting account names
+    not_account: str | None = None        # exclusion filter on account names
+    payee:       str | None = None        # substring or regex; matches transaction description
+    date_from:   datetime.date | None = None  # inclusive lower bound
+    date_to:     datetime.date | None = None  # inclusive upper bound
+    depth:       int | None = None        # max account tree depth (colon-segment count)
+```
+
+All fields are optional and default to `None`. `Query()` with all `None` fields is
+semantically equivalent to `query=None` (no filter). `account`, `not_account`, and
+`payee` patterns are matched as plain case-insensitive substrings unless the string
+contains a regex metacharacter, in which case `re.search` is used.
+
+Re-exported from `PyLedger.__init__` as `PyLedger.Query`.
+
+---
+
+### `RegisterRow` `[IMPLEMENTED — Milestone 2]`
+
+```python
+@dataclass
+class RegisterRow:
+    date:            datetime.date
+    description:     str
+    account:         str
+    amount:          Amount
+    running_balance: Decimal
+```
+
+One row in a register report. `running_balance` is the cumulative sum of
+`amount.quantity` across all rows in output order.
+
+Re-exported from `PyLedger.__init__` as `PyLedger.RegisterRow`.
+
+---
+
+### `ReportSection` `[IMPLEMENTED — Milestone 2]`
+
+```python
+@dataclass(frozen=True)
+class ReportSection:
+    name:     str                     # display name, e.g. "Fixed Expenses"
+    accounts: tuple[str, ...]         # account patterns to include (OR logic)
+    exclude:  tuple[str, ...] = ()    # account patterns to exclude
+    label:    str | None = None       # override for subtotal line; defaults to f"Total {name}"
+    depth:    int | None = None       # depth cap for this section; overrides outer Query depth
+    invert:   bool = False            # negate all amounts (use for income sections)
+```
+
+Frozen dataclass — instances are immutable and safe to share across report calls.
+`accounts` uses OR logic: a posting is included if it matches any pattern.
+`exclude` patterns are applied as a final subtraction.
+
+Re-exported from `PyLedger.__init__` as `PyLedger.ReportSection`.
+
+---
+
+### `ReportSpec` `[IMPLEMENTED — Milestone 2]`
+
+```python
+@dataclass(frozen=True)
+class ReportSpec:
+    name:           str
+    sections:       tuple[ReportSection, ...]
+    show_subtotals: bool = True
+    show_total:     bool = True
+    total_label:    str = "Net"
+```
+
+A structured report definition composed of named sections. Frozen dataclass.
+
+> **Note:** Journal-comment-based spec parsing (`; report` / `; end report` syntax)
+> is `[DEFERRED — Milestone 3]`. In Milestone 2, specs are constructed
+> programmatically only.
+
+Re-exported from `PyLedger.__init__` as `PyLedger.ReportSpec`.
+
+---
+
+### `ReportSectionResult` `[IMPLEMENTED — Milestone 2]`
+
+```python
+@dataclass
+class ReportSectionResult:
+    section:  ReportSection
+    rows:     dict[str, Decimal]   # account name → net balance (after invert)
+    subtotal: Decimal              # sum of all values in rows (after invert)
+```
+
+Mutable result object returned per section by `balance_from_spec()`.
+
+Re-exported from `PyLedger.__init__` as `PyLedger.ReportSectionResult`.
 
 ---
 
@@ -347,42 +449,41 @@ def run_checks(
 All report functions accept a `Journal` as their first argument and are also
 accessible as methods on `Journal` directly (e.g. `journal.balance()`).
 
-### `balance` `[STUB — Milestone 2]`
+### `balance` `[IMPLEMENTED — Milestone 2]`
 
 ```python
 def balance(
     journal: Journal,
-    accounts: list[str] | None = None,
+    query: Query | None = None,
 ) -> dict[str, Decimal]:
     """Return a mapping of account name to net balance."""
 ```
 
+Only accounts appearing in at least one matching posting are included. Elided posting
+amounts are inferred before aggregation. `depth` in the query causes account names to
+be **truncated** (rolled up) rather than excluded — matching hledger `--depth` behaviour.
+
 ---
 
-### `register` `[STUB — Milestone 2]`
+### `register` `[IMPLEMENTED — Milestone 2]`
 
 ```python
-@dataclass
-class RegisterRow:
-    date: datetime.date
-    description: str
-    account: str
-    amount: Amount
-    running_balance: Decimal
-
 def register(
     journal: Journal,
-    accounts: list[str] | None = None,
+    query: Query | None = None,
 ) -> list[RegisterRow]:
     """Return a chronological list of register rows."""
 ```
 
+`RegisterRow` is defined in `PyLedger/models.py` and re-exported from `PyLedger.__init__`.
+See `RegisterRow` under `PyLedger/models.py` above.
+
 ---
 
-### `accounts` `[STUB — Milestone 2]`
+### `accounts` `[IMPLEMENTED — Milestone 2]`
 
 ```python
-def accounts(journal: Journal) -> list[str]:
+def accounts(journal: Journal, query: Query | None = None) -> list[str]:
     """Return a sorted list of all unique account names in the journal."""
 ```
 
@@ -413,11 +514,36 @@ class JournalStats:
     commodities: list[str]           # sorted commodity symbols
     price_count: int                 # len(journal.prices)
 
-def stats(journal: Journal) -> JournalStats:
+def stats(journal: Journal, query: Query | None = None) -> JournalStats:
     """Return summary statistics for the journal."""
 ```
 
+When `query` is non-`None`, transaction-level filters (date range, payee) are applied
+before computing statistics. Account-level filters are not yet applied to `stats` fields
+(deferred to a follow-on task).
+
 Also accessible as `PyLedger.JournalStats` (re-exported from `__init__.py`).
+
+---
+
+### `balance_from_spec` `[IMPLEMENTED — Milestone 2]`
+
+```python
+def balance_from_spec(
+    journal: Journal,
+    spec: ReportSpec,
+    query: Query | None = None,
+) -> list[ReportSectionResult]:
+    """Compute a structured balance report driven by a ReportSpec."""
+```
+
+Returns one `ReportSectionResult` per section in `spec.sections` order. The outer
+`query` acts as a uniform time/payee filter across all sections. Within each section,
+`section.accounts` patterns are OR-combined and `section.exclude` patterns are
+subtracted. `section.depth` overrides `query.depth` for that section only.
+`section.invert` negates all amounts after aggregation.
+
+Re-exported from `PyLedger.__init__` as `PyLedger.balance_from_spec`.
 
 ---
 

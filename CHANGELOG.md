@@ -14,6 +14,30 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — feat: align `balance` CLI output to hledger format
+
+**Human:** Update `balance` command output to match hledger: amount before account, commodity symbol, comma separators, negative amounts in red, separator line, and grand total.
+
+**Claude:** Added `_primary_commodity` helper to `cli.py` to resolve the commodity symbol from journal postings (since `balance()` returns bare `Decimal` values). Rewrote the balance display loop to: format amounts as `£5,000.00`/`£-6,000.00` using `_fmt_amount`; right-align in a dynamic column width (minimum 20); place amount before account name; print a `---` separator line; and print the grand total (bare `0` when zero). Negative amounts and a negative total are colourized red. Added `TestBalanceOutput` (7 tests) to `tests/test_cli/test_cli.py`.
+
+---
+
+### [Unreleased] — feat: align `register` CLI output to hledger format
+
+**Human:** Align the `register` command's terminal output to match hledger's register format for `filtered.journal`.
+
+**Claude:** Added private helpers `_fmt_amount`, `_fmt_balance`, `_abbreviate_account` and ANSI colour constants to `cli.py`. Rewrote the register display loop to: show running balance per posting; format amounts as `£5,000.00` / `£-3,000.00` (commodity before sign); abbreviate account names longer than 20 chars by shortening leading components; show date and description only on the first posting of each transaction; and colourize negative amounts red. Added `TestRegisterOutput` (8 tests) to `tests/test_cli/test_cli.py`.
+
+---
+
+### [Unreleased] — feat: implement Milestone 2 core reports with Query and ReportSpec
+
+**Human:** Implement Milestone 2 as specified in the planning prompt: `Query` dataclass for filtering, full implementations of `balance`, `register`, `accounts`, and `stats`, plus the `ReportSpec`/`ReportSection`/`ReportSectionResult` dataclass foundation and a `balance_from_spec` proof-of-concept function.
+
+**Claude:** Added `Query`, `RegisterRow`, `ReportSection`, `ReportSpec`, and `ReportSectionResult` dataclasses to `models.py`. Moved `RegisterRow` from `reports.py` to `models.py`. Implemented `accounts()`, `balance()` (with depth-as-rollup semantics), `register()`, and `balance_from_spec()` in `reports.py`; extended `stats()` to accept an optional `query=` parameter with partial filter support. Added private helpers `_matches_pattern`, `_posting_matches`, `_infer_elided_posting_amount`, and `_aggregate_posting_amounts`. Updated `Journal` methods to accept `query=` and preserve backward-compatible `accounts=` parameter. Exported all new public symbols from `PyLedger/__init__.py`. Created `tests/fixtures/filtered.journal` (6 transactions, 64-day span, 1 elided posting). Rewrote `tests/test_reports.py` with 92 tests covering all new functionality plus all preserved Milestone 1 stats tests. Updated `dev-docs/api-spec.md`, `ROADMAP.md`, `docs/python-api.md`.
+
+---
+
 ### [Unreleased] — chore: add knowledge base and CONTEXT.md
 
 **Human:** Establish a permanent project knowledge base (`knowledge/`) and a session working-memory file (`CONTEXT.md`), and update `CLAUDE.md` to maintain both going forward.

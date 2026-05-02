@@ -1,42 +1,41 @@
-# Context — 2026-04-27
+# Context — 2026-05-02
 
 ## Current Task
-
-Starting Milestone 2: implement the three remaining report functions (`accounts`, `balance`, `register`) in `PyLedger/reports.py`.
+Align `balance` and `register` CLI output to hledger format — complete.
 
 ## Where We Are
-
-All three functions currently raise `NotImplementedError`. The next step is to implement `accounts()` first (simplest — deduplicate account names from all postings), then `balance()` (net sum per account), then `register()` (chronological register rows with running balance).
+Both `balance` and `register` display correctly. 342 tests pass. Next step is to
+commit (user to confirm). Milestone 2 still awaiting explicit confirmation to mark
+`[DONE]` in ROADMAP.md (CLAUDE.md rule).
 
 ## Decisions In Flight
-
-None — all session decisions have been logged to `knowledge/DECISIONS.md`.
+- `balance()` returns `dict[str, Decimal]` (no commodity); CLI recovers commodity via
+  `_primary_commodity()` which scans the first posting. Multi-commodity balance display
+  is not yet supported and would require a deeper change to the return type.
+- `stats()` has partial query support — date/payee filters applied, account-level deferred.
 
 ## Files Currently Relevant
-
-- [PyLedger/reports.py](PyLedger/reports.py) — `accounts()`, `balance()`, `register()` all stub `NotImplementedError`
-- [tests/test_reports.py](tests/test_reports.py) — existing `stats()` tests; new report tests go here
-- [PyLedger/models.py](PyLedger/models.py) — `Journal`, `Amount`, `Posting`, `Transaction`, `PriceDirective`
-- [dev-docs/api-spec.md](dev-docs/api-spec.md) — contracts for all three functions (mark `[IMPLEMENTED]` when done)
-- [ROADMAP.md](ROADMAP.md) — Milestone 2 candidate scope and exit criteria
+- `PyLedger/cli.py` — `_primary_commodity`, `_fmt_amount`, `_fmt_balance`,
+  `_abbreviate_account`; updated `balance` and `register` display loops
+- `tests/test_cli/test_cli.py` — `TestBalanceOutput` and `TestRegisterOutput`
+- `CHANGELOG.md` — two new unreleased entries
 
 ## Blockers / Open Questions
-
-- **Commodity valuation scope for `balance()`/`register()`:** ROADMAP notes "scope behaviour (file-local vs propagated via `include`) to be confirmed at implementation." Needs a user decision before commodity conversion is implemented.
-- **`balance()` output for multi-commodity accounts:** Does the function return one entry per (account, commodity) pair, or a single `Decimal` per account? Needs confirmation.
+- Milestone 2 `[DONE]` confirmation still pending from user.
+- Multi-commodity balance display deferred — `balance()` would need to return
+  `dict[str, list[Amount]]` or similar to carry commodity info.
 
 ## What NOT To Revisit
-
-- Parser does not validate balance — that is `checks.py`'s job (see `knowledge/DECISIONS.md`).
-- `stats()` is already implemented and tested — do not refactor it while working on the other three.
-- Test subdirectories require `__init__.py` — do not remove them (Python 3.13 `unittest discover` silently skips namespace-package subdirectories).
+- `RegisterRow` date+description continuation key is a known limitation (EC-012).
+- CLI filter flag integration (`-b`/`-e` dates, `-A` account) is Milestone 3.
+- Commodity valuation using `Journal.prices` is Milestone 3.
 
 ## Recent Git State
-
 ```
+2bf467e chore: add knowledge base and CONTEXT.md session memory
 1493424 chore: bump version number & mark Milestone 2 as in progress
 9385430 chore: complete Milestone 1 & update project roadmap
 695ee5e test: guard Optional amount access with assert-not-None
 33d2257 chore: refactor test suite into subfolders and add Black config
-92af4d7 feat: implement alias directive (account name rewriting)
 ```
+(All changes since 2bf467e are uncommitted.)

@@ -86,24 +86,39 @@ Implement a working parser so that `.journal` files can be loaded into memory as
 
 ## Milestone 2 — Core Reports `[IN PROGRESS]`
 
-> **Scope to be confirmed by user before implementation begins.**
+Implement the `Query` filter dataclass, all four report functions, and the
+`ReportSpec` / `ReportSection` foundation for custom report layouts.
 
-Implement the four report functions so that all CLI commands produce output.
+**Scope:**
+- `Query` dataclass in `models.py` — filter criteria for all report functions ✅
+- `accounts(journal, query=None) -> list[str]` — fully implemented ✅
+- `balance(journal, query=None) -> dict[str, Decimal]` — fully implemented ✅
+- `register(journal, query=None) -> list[RegisterRow]` — fully implemented ✅
+- `stats(journal, query=None) -> JournalStats` — extended with partial query support ✅
+- `RegisterRow` dataclass moved to `models.py` ✅
+- `ReportSection`, `ReportSpec` (frozen), `ReportSectionResult` dataclasses in `models.py` ✅
+- `balance_from_spec(journal, spec, query=None)` — proof-of-concept implementation ✅
+- All new types re-exported from `PyLedger.__init__` ✅
+- `tests/fixtures/filtered.journal` — 6-transaction, 64-day fixture with elided posting ✅
+- Full test suite for all new functionality (`tests/test_reports.py`) — 92 tests ✅
+- `dev-docs/api-spec.md` updated to mark all functions `[IMPLEMENTED]` ✅
+- `docs/python-api.md` updated with `Query` and `ReportSpec` worked examples ✅
 
-**Candidate scope:**
-- `accounts(journal) -> list[str]`
-- `balance(journal, accounts=None) -> dict[str, Decimal]`
-- `stats(journal) -> JournalStats`
-- `register(journal, accounts=None) -> list[RegisterRow]`
-- Commodity valuation using `Journal.prices` — convert/value amounts in reports
-  using P directive data; scope behaviour (file-local vs propagated via
-  `include`) to be confirmed at implementation
-- Unit tests for each report (`tests/test_reports.py`)
-- `dev-docs/api-spec.md` updated to mark each function `[IMPLEMENTED]`
-- `docs/` human guides updated with real command output examples
+**Deferred to Milestone 3:**
+- CLI filter flags (`--account`, `--date`, `--payee`) wiring Query to the CLI
+- Journal-comment-based `ReportSpec` parsing (`; report` / `; end report` syntax)
+- Full `stats` query support (account-level filters on `account_count` / `account_depth`)
+- Commodity valuation using `Journal.prices` (multi-commodity balance reports)
 
-**Exit criteria:** All five CLI commands (`balance`, `register`, `accounts`,
-`print`, `stats`) produce correct output against `sample.journal`.
+**Exit criteria:**
+- `python -m unittest discover -s tests -t . -v` — all 327 tests pass ✅
+- `from PyLedger import Query, ReportSpec, ReportSection, ReportSectionResult, balance_from_spec` succeeds ✅
+- `balance`, `register`, `accounts`, `stats` each return correct results with no query ✅
+- `balance(journal, query=Query(account="expenses"))` returns only expense rows ✅
+- `balance(journal, query=Query(depth=1))` returns only top-level account balances ✅
+- `balance_from_spec(journal, spec)` returns one `ReportSectionResult` per section ✅
+- `stats(journal)` continues to produce identical output to Milestone 1 ✅
+- `cli.py` unchanged from Milestone 1 state ✅
 
 ---
 
@@ -111,9 +126,13 @@ Implement the four report functions so that all CLI commands produce output.
 
 > **Scope to be confirmed by user.**
 
-Package the project for distribution and establish a baseline release.
+Package the project for distribution and establish a baseline release. Also completes
+deferred items from Milestone 2.
 
 **Candidate scope (to confirm):**
+- CLI filter flags (`--account`, `--date`, `--payee`) wired to `Query`
+- Journal-comment `ReportSpec` parsing (`; report` / `; end report` syntax)
+- Full `stats` query support (account-level filters)
 - `pip install -e .` installs cleanly; `PyLedger --help` works
 - Version pinned in `__init__.py` and `pyproject.toml`
 - `README.md` and `docs/` updated with real usage examples

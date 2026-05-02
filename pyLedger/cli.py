@@ -11,6 +11,7 @@ import contextlib
 import os
 import sys
 import time
+from decimal import Decimal
 from pathlib import Path
 
 # Captured as early as possible so elapsed time includes import overhead.
@@ -20,6 +21,56 @@ from PyLedger import __version__
 
 
 COMMANDS = ("balance", "register", "accounts", "print", "stats", "check")
+
+_ANSI_RED   = "\033[31m"
+_ANSI_RESET = "\033[0m"
+
+
+# Formats a quantity+commodity pair in hledger style:
+#   positive → £5,000.00   negative → £-3,000.00
+# Commodity symbol is always placed before the sign.
+def _fmt_amount(quantity: Decimal, commodity: str) -> str:
+    if quantity < 0:
+        return f"{commodity}-{abs(quantity):,.2f}"
+    return f"{commodity}{quantity:,.2f}"
+
+
+# Formats the running balance; shows bare "0" (no commodity) when zero,
+# matching hledger's convention for balanced-transaction nets.
+def _fmt_balance(balance: Decimal, commodity: str) -> str:
+    if balance == 0:
+        return "0"
+    return _fmt_amount(balance, commodity)
+
+
+# Abbreviates a colon-separated account name to fit within max_width by
+# progressively shortening leading components (never the last component).
+# First pass: shorten each oversized leading component to 2 chars.
+# Second pass: shorten to 1 char if still too long.
+# Matches hledger's visual shortening — e.g. "expenses:food:rent" → "ex:food:rent".
+def _abbreviate_account(account: str, max_width: int = 20) -> str:
+    if len(account) <= max_width:
+        return account
+    parts = account.split(":")
+    for min_len in (2, 1):
+        for i in range(len(parts) - 1):
+            if len(parts[i]) > min_len:
+                parts[i] = parts[i][:min_len]
+                if len(":".join(parts)) <= max_width:
+                    return ":".join(parts)
+    return ":".join(parts)
+
+
+# Returns the first commodity symbol found in the journal's postings.
+# Used to annotate balance output, which returns bare Decimal values.
+# For multi-commodity journals this returns only the first commodity found;
+# mixed-commodity balance display is not yet supported.
+def _primary_commodity(journal) -> str:
+    for txn in journal.transactions:
+        for posting in txn.postings:
+            if posting.amount is not None:
+                return posting.amount.commodity
+    return ""
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -200,16 +251,54 @@ def main(argv: list[str] | None = None) -> int:
         with contextlib.redirect_stdout(outfile) if outfile else contextlib.nullcontext():
             if args.command == "balance":
                 result = reports.balance(journal)
-                for account, bal in sorted(result.items()):
-                    print(f"  {bal:>12}  {account}")
+                commodity = _primary_commodity(journal)
+                formatted = {
+                    acct: _fmt_amount(bal, commodity)
+                    for acct, bal in result.items()
+                }
+                total = sum(result.values())
+                total_str = "0" if total == 0 else _fmt_amount(total, commodity)
+                col_w = max(
+                    20,
+                    *(len(s) for s in formatted.values()),
+                    len(total_str),
+                )
+                for acct, amt_str in sorted(formatted.items()):
+                    amt = f"{amt_str:>{col_w}}"
+                    if result[acct] < 0:
+                        amt = f"{_ANSI_RED}{amt}{_ANSI_RESET}"
+                    print(f"{amt}  {acct}")
+                print("-" * col_w)
+                tot = f"{total_str:>{col_w}}"
+                if total < 0:
+                    tot = f"{_ANSI_RED}{tot}{_ANSI_RESET}"
+                print(tot)
 
             elif args.command == "register":
                 rows = reports.register(journal)
+                prev_key: tuple | None = None
                 for row in rows:
+                    cur_key = (row.date, row.description)
+                    is_first = cur_key != prev_key
+                    date_str = str(row.date) if is_first else ""
+                    desc_str = row.description if is_first else ""
+                    acct_str = _abbreviate_account(row.account)
+                    commodity = row.amount.commodity
+
+                    # Right-align before colorising — ANSI escape codes have nonzero
+                    # string length but zero display width, so padding must come first.
+                    amt_str = f"{_fmt_amount(row.amount.quantity, commodity):>12}"
+                    if row.amount.quantity < 0:
+                        amt_str = f"{_ANSI_RED}{amt_str}{_ANSI_RESET}"
+
+                    bal_str = f"{_fmt_balance(row.running_balance, commodity):>13}"
+                    if row.running_balance < 0:
+                        bal_str = f"{_ANSI_RED}{bal_str}{_ANSI_RESET}"
+
                     print(
-                        f"  {row.date}  {row.description:<30}  "
-                        f"{row.account:<30}  {row.amount.quantity:>10} {row.amount.commodity}"
+                        f"{date_str:10} {desc_str:21}  {acct_str:<22}  {amt_str}  {bal_str}"
                     )
+                    prev_key = cur_key
 
             elif args.command == "accounts":
                 for name in reports.accounts(journal):

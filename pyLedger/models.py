@@ -69,6 +69,112 @@ class PriceDirective:
 
 
 @dataclass
+class Query:
+    """Filter criteria for report functions.
+
+    All fields are optional and default to None. A Query where every field is
+    None is semantically equivalent to "no filter" — passing query=None and
+    passing Query() produce identical results in every report function.
+
+    The `account`, `not_account`, and `payee` fields follow hledger's matching
+    convention: strings containing regex metacharacters are treated as regex
+    patterns (re.search, case-insensitive); all others are plain substring
+    matches (case-insensitive).
+    """
+
+    account:     str | None = None           # substring or regex; matches posting account names
+    not_account: str | None = None           # exclusion filter on account names
+    payee:       str | None = None           # substring or regex; matches transaction description
+    date_from:   datetime.date | None = None  # inclusive lower bound
+    date_to:     datetime.date | None = None  # inclusive upper bound
+    depth:       int | None = None           # max account tree depth (colon-segment count)
+
+
+@dataclass
+class RegisterRow:
+    """One row in a register report.
+
+    Represents a single matching posting, with the cumulative running balance
+    up to and including this row.
+    """
+
+    date:            datetime.date
+    description:     str
+    account:         str
+    amount:          Amount
+    running_balance: Decimal
+
+
+# ---------------------------------------------------------------------------
+# Report specification types
+#
+# Query answers "which transactions/postings to include" — a filter applied
+# uniformly across a report.
+#
+# ReportSpec answers "how should the included data be structured and labelled"
+# — it groups accounts into named sections, controls sign presentation, and
+# overrides display labels.
+#
+# The two compose cleanly: a Query sets a date range; a ReportSpec controls
+# the layout. Neither knows about the other.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ReportSection:
+    """One named section within a ReportSpec.
+
+    Accounts are matched using the same hledger substring/regex rules as
+    Query.account. Multiple patterns in `accounts` are OR-combined.
+    Patterns in `exclude` are applied as a final subtraction.
+
+    The `invert` flag negates all amounts in this section after aggregation,
+    used to display income accounts (which carry negative balances in
+    double-entry accounting) as positive numbers.
+    """
+
+    name:     str                     # display name, e.g. "Fixed Expenses"
+    accounts: tuple[str, ...]         # account patterns to include (OR logic)
+    exclude:  tuple[str, ...] = ()    # account patterns to exclude
+    label:    str | None = None       # override for subtotal line; defaults to f"Total {name}"
+    depth:    int | None = None       # depth cap for this section; overrides outer Query depth
+    invert:   bool = False            # negate all amounts (use for income sections)
+
+
+@dataclass(frozen=True)
+class ReportSpec:
+    """A structured report definition composed of named sections.
+
+    Library callers construct specs directly:
+
+        spec = ReportSpec(
+            name="Income Statement",
+            sections=(
+                ReportSection("Income",   accounts=("income",),   invert=True),
+                ReportSection("Expenses", accounts=("expenses",)),
+            ),
+        )
+
+    Journal-comment-based spec parsing (the "; report" / "; end report" syntax)
+    is deferred to Milestone 3.
+    """
+
+    name:           str                        # e.g. "Monthly Budget View"
+    sections:       tuple[ReportSection, ...]
+    show_subtotals: bool = True                # render a subtotal row per section
+    show_total:     bool = True                # render a grand total row
+    total_label:    str = "Net"                # label for the grand total row
+
+
+@dataclass
+class ReportSectionResult:
+    """The computed output of a single ReportSection."""
+
+    section:  ReportSection
+    rows:     dict[str, Decimal]  # account name → net balance (after invert)
+    subtotal: Decimal             # sum of all values in rows (after invert)
+
+
+@dataclass
 class Journal:
     """Top-level container for all parsed journal data.
 
@@ -92,31 +198,60 @@ class Journal:
     #   models.py → reports.py → models.py
     # ------------------------------------------------------------------
 
-    def balance(self, accounts: list[str] | None = None) -> dict[str, Decimal]:
+    def balance(
+        self,
+        accounts: list[str] | None = None,
+        query: Query | None = None,
+    ) -> dict[str, Decimal]:
         """Return a mapping of account name to net balance.
 
         Args:
-            accounts: Optional list of account name prefixes to filter by.
-                      If None, all accounts are included.
+            accounts: [Deprecated] Optional list of account name substrings to
+                      filter by. Use query= for new code.
+            query: Optional Query to filter postings. Takes precedence over
+                   accounts when both are supplied.
         """
         from PyLedger.reports import balance as _balance
-        return _balance(self, accounts)
+        # Deprecated 'accounts' param: convert to Query for backward compat.
+        if accounts is not None and query is None:
+            import re as _re
+            if len(accounts) == 1:
+                query = Query(account=accounts[0])
+            else:
+                pattern = "|".join(f"(?:{_re.escape(a)})" for a in accounts)
+                query = Query(account=pattern)
+        return _balance(self, query)
 
-    def register(self, accounts: list[str] | None = None):
+    def register(
+        self,
+        accounts: list[str] | None = None,
+        query: Query | None = None,
+    ) -> list[RegisterRow]:
         """Return a chronological list of RegisterRow objects.
 
         Args:
-            accounts: Optional list of account name prefixes to filter by.
+            accounts: [Deprecated] Optional list of account name substrings to
+                      filter by. Use query= for new code.
+            query: Optional Query to filter postings. Takes precedence over
+                   accounts when both are supplied.
         """
         from PyLedger.reports import register as _register
-        return _register(self, accounts)
+        # Deprecated 'accounts' param: convert to Query for backward compat.
+        if accounts is not None and query is None:
+            import re as _re
+            if len(accounts) == 1:
+                query = Query(account=accounts[0])
+            else:
+                pattern = "|".join(f"(?:{_re.escape(a)})" for a in accounts)
+                query = Query(account=pattern)
+        return _register(self, query)
 
     def accounts(self) -> list[str]:
         """Return a sorted list of all unique account names in the journal."""
         from PyLedger.reports import accounts as _accounts
         return _accounts(self)
 
-    def stats(self) -> JournalStats:
+    def stats(self, query: Query | None = None) -> JournalStats:
         """Return a JournalStats object with summary statistics."""
         from PyLedger.reports import stats as _stats
-        return _stats(self)
+        return _stats(self, query)

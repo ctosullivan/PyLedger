@@ -13,6 +13,7 @@ from PyLedger.cli import _resolve_files, main
 
 FIXTURES = pathlib.Path(__file__).parent.parent / "fixtures"
 SAMPLE_JOURNAL = FIXTURES / "sample.journal"
+FILTERED_JOURNAL = FIXTURES / "filtered.journal"
 
 _SIMPLE_JOURNAL = textwrap.dedent("""\
     2024-01-01 Simple
@@ -174,6 +175,112 @@ class TestFileFlagOutput(unittest.TestCase):
         output = buf.getvalue()
         # root_with_include has 1 included file; sample has 0 → total 1
         self.assertIn("Included files      : 1", output)
+
+
+class TestBalanceOutput(unittest.TestCase):
+    """Verify balance CLI output format against filtered.journal."""
+
+    def _run_balance(self) -> str:
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            code = main(["-f", str(FILTERED_JOURNAL), "balance"])
+        self.assertEqual(code, 0)
+        return buf.getvalue()
+
+    def test_balance_exits_zero(self):
+        self.assertEqual(main(["-f", str(FILTERED_JOURNAL), "balance"]), 0)
+
+    def test_amount_format_positive(self):
+        output = self._run_balance()
+        self.assertIn("£9,641.00", output)
+
+    def test_amount_format_negative(self):
+        # Commodity precedes minus sign: £-5,000.00 not -£5,000.00
+        output = self._run_balance()
+        self.assertIn("£-5,000.00", output)
+
+    def test_account_after_amount(self):
+        # hledger format: amount first, then account (reversed from old PyLedger)
+        output = self._run_balance()
+        for line in output.splitlines():
+            if "assets:bank:checking" in line:
+                self.assertLess(line.index("£"), line.index("assets"))
+
+    def test_separator_line_present(self):
+        output = self._run_balance()
+        self.assertIn("----", output)
+
+    def test_grand_total_zero_shown_bare(self):
+        # Balanced journal: grand total is 0, displayed without commodity symbol
+        output = self._run_balance()
+        lines = [l.strip() for l in output.splitlines()]
+        self.assertIn("0", lines)
+
+    def test_row_count(self):
+        # 6 accounts + separator + total = 8 lines
+        output = self._run_balance()
+        non_empty = [l for l in output.splitlines() if l.strip()]
+        self.assertEqual(len(non_empty), 8)
+
+
+class TestRegisterOutput(unittest.TestCase):
+    """Verify register CLI output format against filtered.journal."""
+
+    def _run_register(self) -> str:
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            code = main(["-f", str(FILTERED_JOURNAL), "register"])
+        self.assertEqual(code, 0)
+        return buf.getvalue()
+
+    def test_register_exits_zero(self):
+        code = main(["-f", str(FILTERED_JOURNAL), "register"])
+        self.assertEqual(code, 0)
+
+    def test_register_row_count(self):
+        output = self._run_register()
+        non_empty = [l for l in output.splitlines() if l.strip()]
+        self.assertEqual(len(non_empty), 12)
+
+    def test_amount_format_positive(self):
+        # Commodity precedes quantity; comma thousands separator; two decimal places
+        output = self._run_register()
+        self.assertIn("£5,000.00", output)
+
+    def test_amount_format_negative(self):
+        # Commodity precedes minus sign: £-5,000.00 not -£5,000.00
+        output = self._run_register()
+        self.assertIn("£-5,000.00", output)
+
+    def test_running_balance_zero_shown_bare(self):
+        # Balanced transactions net to 0 — displayed as bare "0" not "£0.00"
+        output = self._run_register()
+        lines = output.splitlines()
+        # Every second line (continuation posting) should have the balance "0"
+        self.assertTrue(any(l.rstrip().endswith("0") for l in lines))
+
+    def test_date_blank_on_continuation_rows(self):
+        # Only the first posting of each transaction shows a date
+        output = self._run_register()
+        lines = [l for l in output.splitlines() if l.strip()]
+        # 6 transactions × 2 postings = 12 lines; 6 should start with a date
+        date_lines = [l for l in lines if l[:4].strip().isdigit()]
+        blank_lines = [l for l in lines if not l[:4].strip()]
+        self.assertEqual(len(date_lines), 6)
+        self.assertEqual(len(blank_lines), 6)
+
+    def test_elided_posting_shown(self):
+        # Last Salary transaction has an elided income:salary posting — must appear
+        output = self._run_register()
+        self.assertIn("£-3,000.00", output)
+        # income:salary appears at least twice (two Salary transactions)
+        self.assertGreaterEqual(output.count("income:salary"), 2)
+
+    def test_long_account_abbreviated(self):
+        # equity:opening-balances (23 chars) → eq:opening-balances
+        output = self._run_register()
+        self.assertIn("eq:opening-balances", output)
+        self.assertNotIn("equity:opening-balances", output)
 
 
 if __name__ == "__main__":
