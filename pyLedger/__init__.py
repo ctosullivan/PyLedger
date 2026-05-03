@@ -2,6 +2,7 @@
 
 from PyLedger.loader import load_journal as load
 from PyLedger.models import (
+    BalanceAssertion,
     Query,
     RegisterRow,
     ReportSection,
@@ -14,6 +15,7 @@ from PyLedger.checks import CheckError
 __version__ = "0.2.1"
 __all__ = [
     "load",
+    "BalanceAssertion",
     "JournalStats",
     "CheckError",
     "Query",

@@ -17,6 +17,7 @@ from PyLedger.checks import (
     OTHER_CHECK_NAMES,
     check_parseable,
     check_autobalanced,
+    check_assertions,
     check_accounts,
     check_commodities,
     check_payees,
@@ -26,7 +27,7 @@ from PyLedger.checks import (
     run_strict_checks,
     run_checks,
 )
-from PyLedger.models import Amount, Journal, Posting, Transaction
+from PyLedger.models import Amount, BalanceAssertion, Journal, Posting, Transaction
 from PyLedger.parser import parse_string
 
 FIXTURES = pathlib.Path(__file__).parent.parent / "fixtures"
@@ -356,6 +357,18 @@ class TestRunChecks(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_checks(j, names=["nonexistent"])
 
+    def test_run_basic_checks_skip_assertions(self):
+        # Failing assertion is suppressed when skip=frozenset({"assertions"})
+        j = parse_string(
+            "2024-01-01 Test\n"
+            "    assets:bank  £10 = £999\n"
+            "    income       -£10\n"
+        )
+        errors_without_skip = run_basic_checks(j)
+        errors_with_skip = run_basic_checks(j, skip=frozenset({"assertions"}))
+        self.assertTrue(any(e.check_name == "assertions" for e in errors_without_skip))
+        self.assertFalse(any(e.check_name == "assertions" for e in errors_with_skip))
+
     def test_run_checks_no_args_runs_basic(self):
         j = self._balanced_journal()
         self.assertEqual(run_checks(j), [])
@@ -385,6 +398,191 @@ class TestRunChecks(unittest.TestCase):
         account_messages = [e.message for e in acct_errors]
         for msg in account_messages:
             self.assertEqual(account_messages.count(msg), 1)
+
+
+# ---------------------------------------------------------------------------
+# check_assertions
+# ---------------------------------------------------------------------------
+
+def _posting_with_assertion(
+    account: str,
+    amount_str: str | None,
+    assertion_str: str,
+    *,
+    inclusive: bool = False,
+    sole_commodity: bool = False,
+) -> Posting:
+    """Helper: build a Posting with a BalanceAssertion for direct check tests."""
+    from PyLedger.parser import _parse_amount
+    amount = _parse_amount(amount_str, 0) if amount_str else None
+    return Posting(
+        account=account,
+        amount=amount,
+        balance_assertion=BalanceAssertion(
+            amount=_parse_amount(assertion_str, 0),
+            inclusive=inclusive,
+            sole_commodity=sole_commodity,
+        ),
+    )
+
+
+class TestCheckAssertions(unittest.TestCase):
+
+    def test_no_assertions_passes(self):
+        t = _txn("2024-01-01", "T", ("assets", "£10"), ("income", "-£10"))
+        self.assertEqual(check_assertions(_journal(t)), [])
+
+    def test_empty_journal_passes(self):
+        self.assertEqual(check_assertions(_journal()), [])
+
+    def test_single_commodity_assertion_pass(self):
+        # After posting £10 the balance should be £10
+        txn = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="T",
+            postings=[
+                _posting_with_assertion("assets:bank", "£10", "£10"),
+                Posting(account="income", amount=Amount(Decimal("-10"), "£")),
+            ],
+        )
+        self.assertEqual(check_assertions(_journal(txn)), [])
+
+    def test_single_commodity_assertion_fail(self):
+        txn = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="T",
+            postings=[
+                _posting_with_assertion("assets:bank", "£10", "£999"),
+                Posting(account="income", amount=Amount(Decimal("-10"), "£")),
+            ],
+        )
+        errors = check_assertions(_journal(txn))
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].check_name, "assertions")
+        self.assertIn("assets:bank", errors[0].message)
+        self.assertIn("£10", errors[0].message)
+        self.assertIn("£999", errors[0].message)
+
+    def test_cumulative_balance_over_two_transactions(self):
+        # Two transactions to same account; assertion checks running total
+        txn1 = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="First",
+            postings=[
+                _posting_with_assertion("assets:bank", "£500", "£500"),
+                Posting(account="equity", amount=Amount(Decimal("-500"), "£")),
+            ],
+        )
+        txn2 = Transaction(
+            date=datetime.date(2024, 1, 15),
+            description="Second",
+            postings=[
+                _posting_with_assertion("assets:bank", "-£80", "£420"),
+                Posting(account="expenses", amount=Amount(Decimal("80"), "£")),
+            ],
+        )
+        self.assertEqual(check_assertions(_journal(txn1, txn2)), [])
+
+    def test_sole_commodity_pass(self):
+        # Account has only £; == assertion succeeds
+        txn = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="T",
+            postings=[
+                _posting_with_assertion("assets:bank", "£10", "£10", sole_commodity=True),
+                Posting(account="income", amount=Amount(Decimal("-10"), "£")),
+            ],
+        )
+        self.assertEqual(check_assertions(_journal(txn)), [])
+
+    def test_sole_commodity_fail_other_commodity_present(self):
+        # Account has both £ and $; == £10 assertion fails due to non-zero $
+        txn1 = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="Dollars",
+            postings=[
+                Posting(account="assets:bank", amount=Amount(Decimal("5"), "$")),
+                Posting(account="income", amount=Amount(Decimal("-5"), "$")),
+            ],
+        )
+        txn2 = Transaction(
+            date=datetime.date(2024, 1, 2),
+            description="Assertion",
+            postings=[
+                _posting_with_assertion("assets:bank", "£10", "£10", sole_commodity=True),
+                Posting(account="income", amount=Amount(Decimal("-10"), "£")),
+            ],
+        )
+        errors = check_assertions(_journal(txn1, txn2))
+        # At minimum one error for the sole-commodity violation ($5 still present)
+        self.assertTrue(any(e.check_name == "assertions" for e in errors))
+        self.assertTrue(any("sole-commodity" in e.message for e in errors))
+
+    def test_inclusive_assertion_sums_subaccounts(self):
+        # assets:bank = £300, assets:bank:savings = £200; =* £500 should pass
+        txn = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="T",
+            postings=[
+                Posting(account="assets:bank", amount=Amount(Decimal("300"), "£")),
+                Posting(account="assets:bank:savings", amount=Amount(Decimal("200"), "£")),
+                _posting_with_assertion("assets:bank", None, "£500", inclusive=True),
+                Posting(account="equity", amount=Amount(Decimal("-500"), "£")),
+            ],
+        )
+        self.assertEqual(check_assertions(_journal(txn)), [])
+
+    def test_inclusive_assertion_fail(self):
+        txn = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="T",
+            postings=[
+                Posting(account="assets:bank", amount=Amount(Decimal("300"), "£")),
+                Posting(account="assets:bank:savings", amount=Amount(Decimal("200"), "£")),
+                _posting_with_assertion("assets:bank", None, "£999", inclusive=True),
+                Posting(account="equity", amount=Amount(Decimal("-500"), "£")),
+            ],
+        )
+        errors = check_assertions(_journal(txn))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("assets:bank", errors[0].message)
+
+    def test_date_order_not_parse_order(self):
+        # txn2 is parsed first (higher source_line) but has an earlier date.
+        # After processing in date order: txn2 (Jan 1) then txn1 (Jan 10).
+        # Assertion in txn1 sees the running total after both, which is £150.
+        txn1 = Transaction(
+            date=datetime.date(2024, 1, 10),
+            description="Later date, parsed first",
+            source_line=1,
+            postings=[
+                _posting_with_assertion("assets:bank", "£100", "£150"),
+                Posting(account="income", amount=Amount(Decimal("-100"), "£")),
+            ],
+        )
+        txn2 = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="Earlier date, parsed second",
+            source_line=100,
+            postings=[
+                Posting(account="assets:bank", amount=Amount(Decimal("50"), "£")),
+                Posting(account="equity", amount=Amount(Decimal("-50"), "£")),
+            ],
+        )
+        # journal stores txn1 then txn2 (parse order), but check must sort by date
+        self.assertEqual(check_assertions(_journal(txn1, txn2)), [])
+
+    def test_fixture_assertions_pass(self):
+        from PyLedger.loader import load_journal
+        j = load_journal(FIXTURES / "assertions_pass.journal")
+        self.assertEqual(check_assertions(j), [])
+
+    def test_fixture_assertions_fail(self):
+        from PyLedger.loader import load_journal
+        j = load_journal(FIXTURES / "assertions_fail.journal")
+        errors = check_assertions(j)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("assets:checking", errors[0].message)
 
 
 # ---------------------------------------------------------------------------

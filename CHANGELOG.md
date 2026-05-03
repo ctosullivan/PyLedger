@@ -14,6 +14,21 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — fix: accept trailing decimal point in amounts (`$1,350,000.`)
+
+**Human:** Real journal file failed with `invalid amount: '$1,350,000.'`; hledger accepts trailing decimal points.
+**Claude:** Changed `(?:\.\d+)?` → `(?:\.\d*)?` in `_AMOUNT` and `(?:,\d+)?` → `(?:,\d*)?` in `_AMOUNT_COMMA` in `parser.py`. Added two tests (`TestTrailingDecimal`). Documented as EC-013 in `knowledge/EDGE_CASES.md`.
+
+---
+
+### [Unreleased] — feat: balance assertions (`=`, `==`, `=*`, `==*`)
+
+**Human:** Implement hledger-style balance assertions and include in Milestone 2.
+
+**Claude:** Added `BalanceAssertion` dataclass to `models.py` (fields: `amount`, `inclusive`, `sole_commodity`) and a new `balance_assertion` field on `Posting`. Extended `_parse_posting` in `parser.py` with `_ASSERTION_MARKER_RE` to detect and parse `=`, `==`, `=*`, `==*` markers inline in posting amount tokens. Added `check_assertions` to `checks.py` — processes postings in date order (then parse order), maintains per-account per-commodity running balances, and validates all four assertion variants including sole-commodity and subaccount-inclusive checks. Added `"assertions"` to `BASIC_CHECK_NAMES` (runs automatically like `autobalanced`). Added `skip: frozenset[str] | None` parameter to `run_basic_checks`, `run_strict_checks`, `run_checks`. Added `-I`/`--ignore-assertions` CLI flag to `cli.py`. Created `tests/fixtures/assertions_pass.journal` and `tests/fixtures/assertions_fail.journal`. Added `TestCheckAssertions` (12 tests) and `TestBalanceAssertions` CLI class (6 tests). Updated `dev-docs/hledger-compatibility.md`, `dev-docs/api-spec.md`, `ROADMAP.md`, `knowledge/DECISIONS.md`. Balance assignments (elided amount + assertion) are parsed but not validated — deferred.
+
+---
+
 ### [Unreleased] — feat: align `balance` CLI output to hledger format
 
 **Human:** Update `balance` command output to match hledger: amount before account, commodity symbol, comma separators, negative amounts in red, separator line, and grand total.

@@ -109,3 +109,27 @@ Non-obvious judgment calls made during development. Each entry explains what was
 **Rejected alternative:** Using namespace packages (no `__init__.py`).
 
 **Applies to:** `tests/` subdirectories
+
+---
+
+## 2026-05-03 — `assertions` added to `BASIC_CHECK_NAMES` (not `OTHER_CHECK_NAMES`)
+
+**Decision:** The `assertions` check runs automatically (basic tier) on every CLI command, not as an opt-in named check.
+
+**Why:** hledger treats balance assertions as automatic — they are enforced at journal-load time rather than requiring explicit invocation. Adding them to `OTHER_CHECK_NAMES` would mean users could silently ignore assertion failures unless they explicitly ran `check assertions`, which defeats the purpose.
+
+**Rejected alternative:** `OTHER_CHECK_NAMES` placement, which would match the existing pattern for `payees`, `ordereddates`, etc.
+
+**Applies to:** `PyLedger/checks.py`, `dev-docs/hledger-compatibility.md`
+
+---
+
+## 2026-05-03 — Balance assignments deferred (not validated in Milestone 2)
+
+**Decision:** The parser accepts `= AMOUNT` syntax with no preceding posting amount (balance assignment — where the assertion implies the posting amount). It stores `posting.amount = None` and `posting.balance_assertion` as normal, but `check_assertions` does not infer the elided amount from the assertion.
+
+**Why:** Balance assignments are a distinct feature from balance assertions. Implementing them correctly requires inferring the posting amount (affecting `check_autobalanced`) and potentially the order of check evaluation. Scoped out to keep Milestone 2 focused.
+
+**Rejected alternative:** Raising a `ParseError` when a balance assignment is encountered (too strict — valid hledger files should load without error even if the assignment isn't validated).
+
+**Applies to:** `PyLedger/parser.py`, `PyLedger/checks.py`

@@ -13,17 +13,18 @@ Check tiers mirror hledger's classification:
 from __future__ import annotations
 
 import datetime
+from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 
-from PyLedger.models import Journal, Transaction
+from PyLedger.models import Journal, Posting, Transaction
 
 
 # ---------------------------------------------------------------------------
 # Public constants
 # ---------------------------------------------------------------------------
 
-BASIC_CHECK_NAMES: tuple[str, ...] = ("parseable", "autobalanced")
+BASIC_CHECK_NAMES: tuple[str, ...] = ("parseable", "autobalanced", "assertions")
 STRICT_CHECK_NAMES: tuple[str, ...] = ("accounts", "commodities")
 OTHER_CHECK_NAMES: tuple[str, ...] = ("payees", "ordereddates", "uniqueleafnames")
 
@@ -391,12 +392,120 @@ def check_uniqueleafnames(journal: Journal) -> list[CheckError]:
 
 
 # ---------------------------------------------------------------------------
+# Balance assertion check
+# ---------------------------------------------------------------------------
+
+def check_assertions(journal: Journal) -> list[CheckError]:
+    """Check that every balance assertion in the journal holds.
+
+    Processes postings in date order (then parse order within the same date),
+    maintaining a running balance per account per commodity.  When a posting
+    carries a balance assertion, the running balance at that point is compared
+    to the expected value.
+
+    Variants:
+      =    single-commodity, subaccount-exclusive
+      ==   sole-commodity, subaccount-exclusive (no other commodity may be non-zero)
+      =*   single-commodity, subaccount-inclusive
+      ==*  sole-commodity, subaccount-inclusive
+
+    Costs and posting status are ignored (per hledger spec).
+
+    Args:
+        journal: The journal to check.
+
+    Returns:
+        List of CheckError, one per failed assertion.
+    """
+    errors: list[CheckError] = []
+
+    # Sort (txn, posting) pairs by date then parse order within the same date.
+    # source_line=None is treated as 0 so unknown lines sort before known ones.
+    pairs: list[tuple[Transaction, object]] = []
+    for txn in sorted(
+        journal.transactions,
+        key=lambda t: (t.date, t.source_line or 0),
+    ):
+        for posting in txn.postings:
+            pairs.append((txn, posting))
+
+    # running_balances[account][commodity] = running net quantity
+    running_balances: dict[str, dict[str, Decimal]] = defaultdict(
+        lambda: defaultdict(Decimal)
+    )
+
+    for txn, posting in pairs:
+        assert isinstance(posting, Posting)
+
+        if posting.amount is not None:
+            running_balances[posting.account][posting.amount.commodity] += (
+                posting.amount.quantity
+            )
+
+        ba = posting.balance_assertion
+        if ba is None:
+            continue
+
+        commodity = ba.amount.commodity
+        expected = ba.amount.quantity
+
+        # Compute actual balance for this commodity, inclusive or exclusive.
+        if ba.inclusive:
+            prefix = posting.account + ":"
+            actual = sum(
+                acct_bal.get(commodity, Decimal(0))
+                for acct, acct_bal in running_balances.items()
+                if acct == posting.account or acct.startswith(prefix)
+            )
+        else:
+            actual = running_balances[posting.account].get(commodity, Decimal(0))
+
+        if actual != expected:
+            errors.append(CheckError(
+                check_name="assertions",
+                message=(
+                    f"balance assertion failed for {posting.account!r} on {txn.date}: "
+                    f"expected {commodity}{expected}, got {commodity}{actual}"
+                    + (f" (line {posting.source_line})" if posting.source_line else "")
+                ),
+            ))
+
+        if ba.sole_commodity:
+            # All other commodities in the account (or subtree) must be zero.
+            if ba.inclusive:
+                prefix = posting.account + ":"
+                combined: dict[str, Decimal] = defaultdict(Decimal)
+                for acct, acct_bal in running_balances.items():
+                    if acct == posting.account or acct.startswith(prefix):
+                        for comm, qty in acct_bal.items():
+                            combined[comm] += qty
+                other_balances = dict(combined)
+            else:
+                other_balances = dict(running_balances[posting.account])
+
+            for other_comm, other_qty in sorted(other_balances.items()):
+                if other_comm != commodity and other_qty != Decimal(0):
+                    errors.append(CheckError(
+                        check_name="assertions",
+                        message=(
+                            f"sole-commodity assertion failed for "
+                            f"{posting.account!r} on {txn.date}: "
+                            f"unexpected non-zero {other_comm} balance {other_qty}"
+                            + (f" (line {posting.source_line})" if posting.source_line else "")
+                        ),
+                    ))
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
 # Check registry and runners
 # ---------------------------------------------------------------------------
 
 _CHECK_FN = {
     "parseable": check_parseable,
     "autobalanced": check_autobalanced,
+    "assertions": check_assertions,
     "accounts": check_accounts,
     "commodities": check_commodities,
     "payees": check_payees,
@@ -405,17 +514,33 @@ _CHECK_FN = {
 }
 
 
-def run_basic_checks(journal: Journal) -> list[CheckError]:
-    """Run the basic checks (parseable, autobalanced) and return all errors."""
+def run_basic_checks(
+    journal: Journal,
+    *,
+    skip: frozenset[str] | None = None,
+) -> list[CheckError]:
+    """Run the basic checks (parseable, autobalanced, assertions) and return all errors.
+
+    Args:
+        journal: The journal to check.
+        skip: Optional set of check names to omit even if they are basic checks
+              (e.g. ``frozenset({"assertions"})`` when ``-I`` is passed).
+    """
+    _skip = skip or frozenset()
     errors: list[CheckError] = []
     for name in BASIC_CHECK_NAMES:
-        errors.extend(_CHECK_FN[name](journal))
+        if name not in _skip:
+            errors.extend(_CHECK_FN[name](journal))
     return errors
 
 
-def run_strict_checks(journal: Journal) -> list[CheckError]:
+def run_strict_checks(
+    journal: Journal,
+    *,
+    skip: frozenset[str] | None = None,
+) -> list[CheckError]:
     """Run basic + strict checks and return all errors."""
-    errors = run_basic_checks(journal)
+    errors = run_basic_checks(journal, skip=skip)
     for name in STRICT_CHECK_NAMES:
         errors.extend(_CHECK_FN[name](journal))
     return errors
@@ -426,6 +551,7 @@ def run_checks(
     names: list[str] | None = None,
     *,
     strict: bool = False,
+    skip: frozenset[str] | None = None,
 ) -> list[CheckError]:
     """Run checks and return all errors.
 
@@ -438,6 +564,8 @@ def run_checks(
         names: Optional list of additional check names to run (from
                OTHER_CHECK_NAMES, or any valid check name).
         strict: If True, run strict checks in addition to basic.
+        skip: Optional set of check names to suppress entirely (e.g.
+              ``frozenset({"assertions"})`` for the ``-I`` flag).
 
     Returns:
         Combined list of CheckError from all requested checks.
@@ -445,6 +573,7 @@ def run_checks(
     Raises:
         ValueError: if a name in `names` is not a recognised check.
     """
+    _skip = skip or frozenset()
     names = names or []
     for name in names:
         if name not in _CHECK_FN:
@@ -452,7 +581,7 @@ def run_checks(
                 f"unknown check {name!r}; available: {', '.join(sorted(_CHECK_FN))}"
             )
 
-    errors = run_basic_checks(journal)
+    errors = run_basic_checks(journal, skip=_skip)
 
     if strict:
         for name in STRICT_CHECK_NAMES:
@@ -463,7 +592,7 @@ def run_checks(
         already_run |= set(STRICT_CHECK_NAMES)
 
     for name in names:
-        if name not in already_run:
+        if name not in already_run and name not in _skip:
             errors.extend(_CHECK_FN[name](journal))
             already_run.add(name)
 

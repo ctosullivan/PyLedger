@@ -108,6 +108,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Enable strict mode: also check that accounts and commodities are declared",
     )
     p.add_argument(
+        "-I", "--ignore-assertions",
+        dest="ignore_assertions",
+        action="store_true",
+        help="Disable balance assertion checking",
+    )
+    p.add_argument(
         "command",
         choices=COMMANDS,
         help=f"Report to run: {', '.join(COMMANDS)}",
@@ -206,7 +212,11 @@ def main(argv: list[str] | None = None) -> int:
     # --- Default basic-check gate (runs before every command) ---
     from PyLedger import checks as _checks
 
-    basic_errors = _checks.run_basic_checks(journal)
+    _skip: frozenset[str] = (
+        frozenset({"assertions"}) if getattr(args, "ignore_assertions", False) else frozenset()
+    )
+
+    basic_errors = _checks.run_basic_checks(journal, skip=_skip)
     if basic_errors:
         for e in basic_errors:
             print(f"pyLedger: {e.message}", file=sys.stderr)
@@ -215,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     # --- Strict-mode checks (-s/--strict) ---
     if args.strict:
         strict_only = [
-            e for e in _checks.run_strict_checks(journal)
+            e for e in _checks.run_strict_checks(journal, skip=_skip)
             if e.check_name not in _checks.BASIC_CHECK_NAMES
         ]
         if strict_only:
@@ -227,7 +237,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "check":
         check_names = args.journal  # positional args are check names for this command
         try:
-            errors = _checks.run_checks(journal, names=list(check_names), strict=args.strict)
+            errors = _checks.run_checks(
+                journal, names=list(check_names), strict=args.strict, skip=_skip
+            )
         except ValueError as exc:
             print(f"pyLedger: {exc}", file=sys.stderr)
             return 1

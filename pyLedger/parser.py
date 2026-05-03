@@ -11,7 +11,7 @@ import datetime
 import re
 from decimal import Decimal, InvalidOperation
 
-from PyLedger.models import Amount, Journal, Posting, PriceDirective, Transaction
+from PyLedger.models import Amount, BalanceAssertion, Journal, Posting, PriceDirective, Transaction
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ _SIMPLE_DATE = re.compile(
 #                                   are not digits, commas, dots, whitespace, or
 #                                   minus; matches '£', '$', '€', etc.; empty
 #                                   string when the commodity is a suffix
-#   (3) ([\d,]+(?:\.\d+)?)        — numeric quantity: one or more digits/commas
+#   (3) ([\d,]+(?:\.\d*)?)         — numeric quantity: one or more digits/commas
 #                                   followed by an optional decimal part; commas
 #                                   are stripped before Decimal conversion
 #   (4) ([A-Za-z][A-Za-z0-9]*)?   — suffix commodity: a letter-started alphanumeric
@@ -147,10 +147,12 @@ _SIMPLE_DATE = re.compile(
 #   - Integer quantities ('£100') are valid; the decimal part is optional
 #   - Negative suffix amounts ('-30.00 EUR'): the minus in group 1 precedes the
 #     empty group 2, then the quantity in group 3, then EUR in group 4
+#   - Trailing decimal with no fractional digits ('$1,000.') is accepted;
+#     Python's Decimal('1000.') is valid and equals Decimal('1000')
 _AMOUNT = re.compile(
     r"^(-?)"
     r"([^\d,.\s-]*)"
-    r"\s*([\d,]+(?:\.\d+)?)"
+    r"\s*([\d,]+(?:\.\d*)?)"
     r"\s*([A-Za-z][A-Za-z0-9]*)?"
     r"$"
 )
@@ -165,7 +167,7 @@ _AMOUNT = re.compile(
 # Group breakdown: (mirrors _AMOUNT; only the numeric group differs)
 #   (1) (-?)                      — optional leading minus sign
 #   (2) ([^\d,.\s-]*)             — prefix commodity symbol (£, $, €, etc.)
-#   (3) ([\d.]*(?:,\d+)?)         — numeric quantity in comma-decimal form:
+#   (3) ([\d.]*(?:,\d*)?)          — numeric quantity in comma-decimal form:
 #                                   zero or more digits/periods (digit-group marks)
 #                                   followed by an optional comma+decimal digits;
 #                                   periods are stripped and the comma is replaced
@@ -179,10 +181,12 @@ _AMOUNT = re.compile(
 #   - "100"       → no separators at all            → Decimal("100")
 #   - "€1.234,56" → prefix "€" + comma-decimal numeric
 #   - "1.234,56 EUR" → suffix "EUR" style
+#   - Trailing comma with no fractional digits ('1.234,') is accepted;
+#     Python's Decimal('1234.') is valid and equals Decimal('1234')
 _AMOUNT_COMMA = re.compile(
     r"^(-?)"
     r"([^\d,.\s-]*)"
-    r"\s*([\d.]*(?:,\d+)?)"
+    r"\s*([\d.]*(?:,\d*)?)"
     r"\s*([A-Za-z][A-Za-z0-9]*)?"
     r"$"
 )
@@ -422,6 +426,24 @@ def _extract_commodity_symbol(raw: str, lineno: int) -> str:
     return ""
 
 
+# Matches a balance assertion marker embedded in a posting amount token.
+# Purpose: detect the first occurrence of ==*, ==, =*, or = that is preceded
+#          and followed by whitespace, so we can split a posting amount token
+#          into "posting amount" and "assertion amount".
+# Group breakdown:
+#   (1) ==* | == | =* | = — the assertion marker; alternatives ordered
+#       longest-first so ==* is tried before == and =* before =
+# Edge cases:
+#   - ==* must precede == in the alternation to avoid consuming only ==
+#   - =* must precede = in the alternation to avoid consuming only =
+#   - surrounding \s+ prevents matching = inside commodity symbols or
+#     numbers (e.g. scientific notation, if ever supported)
+#   - a bare = at the start of amount_raw ("= $500") indicates a balance
+#     assignment (amount elided); this regex will not match it because
+#     there is no leading \s+ before the =
+_ASSERTION_MARKER_RE = re.compile(r"\s+(==\*|==|=\*|=)\s+")
+
+
 def _parse_posting(line: str, lineno: int, decimal_mark: str = ".") -> Posting:
     """Parse a single posting line (already stripped of leading whitespace).
 
@@ -462,9 +484,34 @@ def _parse_posting(line: str, lineno: int, decimal_mark: str = ".") -> Posting:
     if not amount_raw:
         return Posting(account=account, amount=None, source_line=lineno)
 
+    # Detect a balance assertion marker (=, ==, =*, ==*) in the amount token.
+    # If found, split into posting amount and assertion amount.
+    assertion: BalanceAssertion | None = None
+    am = _ASSERTION_MARKER_RE.search(amount_raw)
+    if am:
+        marker = am.group(1)
+        posting_amount_raw = amount_raw[: am.start()].strip()
+        assertion_amount_raw = amount_raw[am.end() :].strip()
+        assertion = BalanceAssertion(
+            amount=_parse_amount(assertion_amount_raw, lineno, decimal_mark),
+            inclusive="*" in marker,
+            sole_commodity=marker.startswith("=="),
+        )
+        amount_raw = posting_amount_raw
+
+    if not amount_raw:
+        # Posting amount elided (balance assignment syntax) — amount stays None
+        return Posting(
+            account=account,
+            amount=None,
+            balance_assertion=assertion,
+            source_line=lineno,
+        )
+
     return Posting(
         account=account,
         amount=_parse_amount(amount_raw, lineno, decimal_mark),
+        balance_assertion=assertion,
         source_line=lineno,
     )
 

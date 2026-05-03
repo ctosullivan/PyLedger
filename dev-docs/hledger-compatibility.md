@@ -143,13 +143,31 @@ PyLedger runs validation checks after parsing. Checks are grouped into tiers.
 |---|---|---|
 | `parseable` | basic (always) | Journal parsed without `ParseError` — trivially satisfied after load |
 | `autobalanced` | basic (always) | Each transaction nets to zero per commodity; one elided posting per transaction is allowed and is inferred to balance |
+| `assertions` | basic (always) | All balance assertions in posting lines pass; disable with `-I`/`--ignore-assertions` |
 | `accounts` | strict (`-s`) | All posting accounts appear in `declared_accounts` |
 | `commodities` | strict (`-s`) | All commodity symbols in amounts appear in `declared_commodities`; zero-amount postings (commodity `""`) are exempt |
 | `payees` | other (named) | All transaction descriptions appear in `declared_payees` |
 | `ordereddates` | other (named) | Transactions appear in non-decreasing date order |
 | `uniqueleafnames` | other (named) | No two accounts share the same final colon-segment |
 
-**Deferred checks** (out of scope for v1): `balanced` (exact-balance assertions), `assertions` (balance-assertion directives), `recentassertions`, `tags`.
+**Deferred checks** (out of scope for v1): `balanced` (exact-balance assertions on totals), `recentassertions`, `tags`.
+
+### Balance assertions
+
+Balance assertions appear inline after a posting amount and verify the running balance at that point in the journal. They are checked in date order (then parse order within the same date), which means transactions can be freely reordered without breaking assertions.
+
+Supported syntax:
+
+| Syntax | Description |
+|---|---|
+| `amount = EXPECTED` | Single-commodity, subaccount-exclusive |
+| `amount == EXPECTED` | Sole-commodity, subaccount-exclusive (no other commodity may have a non-zero balance) |
+| `amount =* EXPECTED` | Single-commodity, subaccount-inclusive (sum includes all sub-accounts) |
+| `amount ==* EXPECTED` | Sole-commodity, subaccount-inclusive |
+
+The assertion amount must be the same commodity as the posting amount (or the commodity being checked). Costs are ignored (not yet implemented). Posting status (unmarked/pending/cleared) does not affect assertions.
+
+**Balance assignments** (`= EXPECTED` with no explicit posting amount) are parsed — the posting amount is stored as `None` — but the implied amount is **not** inferred from the assertion; this is a known limitation deferred to a future milestone.
 
 ---
 
@@ -168,7 +186,7 @@ feature below.
 | Secondary dates | `2024-01-15=2024-01-20` | Secondary date ignored |
 | Tags | `; tag:value` | Inline tag annotations silently ignored; `tag` directive (declaring allowed tag names) is **[IMPLEMENTED]** — stored in `Journal.declared_tags` |
 | Lot prices | `10 AAPL @ $150.00` | `ParseError` |
-| Balance assertions | `assets:checking = £500` | Silently ignored |
+| Balance assertions | `assets:checking = £500` | **[IMPLEMENTED]** — see `assertions` check above |
 | Virtual postings | `(expenses:food)` or `[expenses:food]` | `ParseError` |
 | Multi-currency auto-conversion | | Not supported |
 

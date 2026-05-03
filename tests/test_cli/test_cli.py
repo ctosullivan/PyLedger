@@ -14,6 +14,8 @@ from PyLedger.cli import _resolve_files, main
 FIXTURES = pathlib.Path(__file__).parent.parent / "fixtures"
 SAMPLE_JOURNAL = FIXTURES / "sample.journal"
 FILTERED_JOURNAL = FIXTURES / "filtered.journal"
+ASSERTIONS_PASS = FIXTURES / "assertions_pass.journal"
+ASSERTIONS_FAIL = FIXTURES / "assertions_fail.journal"
 
 _SIMPLE_JOURNAL = textwrap.dedent("""\
     2024-01-01 Simple
@@ -281,6 +283,51 @@ class TestRegisterOutput(unittest.TestCase):
         output = self._run_register()
         self.assertIn("eq:opening-balances", output)
         self.assertNotIn("equity:opening-balances", output)
+
+
+# ---------------------------------------------------------------------------
+# Balance assertions: -I / --ignore-assertions flag
+# ---------------------------------------------------------------------------
+
+class TestBalanceAssertions(unittest.TestCase):
+    """CLI-level tests for balance assertion checking and the -I flag."""
+
+    def _run(self, *args: str) -> tuple[int, str, str]:
+        """Run main() with the given args; return (exit_code, stdout, stderr)."""
+        with patch("sys.argv", ["PyLedger", *args]):
+            out = StringIO()
+            err = StringIO()
+            with patch("sys.stdout", out), patch("sys.stderr", err):
+                code = main()
+        return (code, out.getvalue(), err.getvalue())
+
+    def test_passing_assertions_exits_zero(self):
+        code, _out, _err = self._run("stats", "-f", str(ASSERTIONS_PASS))
+        self.assertEqual(code, 0)
+
+    def test_failing_assertion_exits_one(self):
+        code, _out, err = self._run("stats", "-f", str(ASSERTIONS_FAIL))
+        self.assertEqual(code, 1)
+        self.assertIn("assertion", err.lower())
+
+    def test_ignore_assertions_flag_suppresses_failure(self):
+        code, _out, _err = self._run("-I", "stats", "-f", str(ASSERTIONS_FAIL))
+        self.assertEqual(code, 0)
+
+    def test_ignore_assertions_long_flag(self):
+        code, _out, _err = self._run(
+            "--ignore-assertions", "stats", "-f", str(ASSERTIONS_FAIL)
+        )
+        self.assertEqual(code, 0)
+
+    def test_check_command_reports_assertion_error(self):
+        code, _out, err = self._run("check", "assertions", "-f", str(ASSERTIONS_FAIL))
+        self.assertEqual(code, 1)
+        self.assertIn("assertion", err.lower())
+
+    def test_check_command_passes_on_clean_journal(self):
+        code, _out, _err = self._run("check", "assertions", "-f", str(ASSERTIONS_PASS))
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":

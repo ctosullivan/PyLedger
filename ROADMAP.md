@@ -103,6 +103,11 @@ Implement the `Query` filter dataclass, all four report functions, and the
 - Full test suite for all new functionality (`tests/test_reports.py`) — 92 tests ✅
 - `dev-docs/api-spec.md` updated to mark all functions `[IMPLEMENTED]` ✅
 - `docs/python-api.md` updated with `Query` and `ReportSpec` worked examples ✅
+- **Balance assertions** — inline `=`, `==`, `=*`, `==*` syntax parsed and validated ✅
+  - `BalanceAssertion` dataclass in `models.py`; `Posting.balance_assertion` field ✅
+  - `check_assertions` added to `checks.py` as a basic check (date-order, all variants) ✅
+  - `-I`/`--ignore-assertions` CLI flag ✅
+  - `assertions_pass.journal` and `assertions_fail.journal` fixtures ✅
 
 **Deferred to Milestone 3:**
 - CLI filter flags (`--account`, `--date`, `--payee`) wiring Query to the CLI

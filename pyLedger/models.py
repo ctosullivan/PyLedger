@@ -29,6 +29,22 @@ class Amount:
 
 
 @dataclass
+class BalanceAssertion:
+    """A balance assertion attached to a posting line.
+
+    Corresponds to the hledger syntax variants:
+      =   single-commodity, subaccount-exclusive
+      ==  sole-commodity, subaccount-exclusive
+      =*  single-commodity, subaccount-inclusive
+      ==* sole-commodity, subaccount-inclusive
+    """
+
+    amount: Amount
+    inclusive: bool = False       # True for =* and ==*
+    sole_commodity: bool = False  # True for == and ==*
+
+
+@dataclass
 class Posting:
     """One line within a transaction: an account name and an optional amount.
 
@@ -38,6 +54,7 @@ class Posting:
 
     account: str
     amount: Amount | None = None
+    balance_assertion: BalanceAssertion | None = field(default=None)
     source_line: int | None = field(default=None, repr=False)
 
 

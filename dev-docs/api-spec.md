@@ -48,14 +48,31 @@ Represents a single monetary or commodity amount.
 
 ---
 
+### `BalanceAssertion` `[IMPLEMENTED]`
+
+```python
+@dataclass
+class BalanceAssertion:
+    amount: Amount
+    inclusive: bool = False       # True for =* and ==*
+    sole_commodity: bool = False  # True for == and ==*
+```
+
+An inline balance assertion attached to a posting.  Corresponds to the
+hledger assertion markers `=`, `==`, `=*`, `==*`.  See
+`dev-docs/hledger-compatibility.md` for syntax and semantics.
+
+---
+
 ### `Posting` `[IMPLEMENTED]`
 
 ```python
 @dataclass
 class Posting:
-    account: str                   # e.g. "expenses:food"
-    amount: Amount | None = None   # None means "infer from other postings"
-    source_line: int | None = None # 1-based line number in source file; None for programmatic objects
+    account: str                                    # e.g. "expenses:food"
+    amount: Amount | None = None                    # None means "infer from other postings"
+    balance_assertion: BalanceAssertion | None = None  # optional inline assertion
+    source_line: int | None = None                  # 1-based line number; None for programmatic objects
 ```
 
 One line within a transaction, mapping an account to an amount.
@@ -381,7 +398,7 @@ Also re-exported from `PyLedger.__init__` as `PyLedger.CheckError`.
 ### Check constants `[IMPLEMENTED]`
 
 ```python
-BASIC_CHECK_NAMES:  tuple[str, ...] = ("parseable", "autobalanced")
+BASIC_CHECK_NAMES:  tuple[str, ...] = ("parseable", "autobalanced", "assertions")
 STRICT_CHECK_NAMES: tuple[str, ...] = ("accounts", "commodities")
 OTHER_CHECK_NAMES:  tuple[str, ...] = ("payees", "ordereddates", "uniqueleafnames")
 ```
@@ -396,6 +413,7 @@ All return `list[CheckError]` — empty list means no errors.
 |---|---|---|
 | `check_parseable(journal)` | basic | Always `[]` — already parsed |
 | `check_autobalanced(journal)` | basic | Each transaction nets to zero per commodity; one elided posting allowed |
+| `check_assertions(journal)` | basic | All inline balance assertions pass; checked in date order |
 | `check_accounts(journal)` | strict | All posting accounts appear in `declared_accounts` |
 | `check_commodities(journal)` | strict | All commodity symbols in amounts appear in `declared_commodities`; zero-amount postings (commodity `""`) are exempt |
 | `check_payees(journal)` | other | All transaction descriptions appear in `declared_payees` |
@@ -407,8 +425,15 @@ All return `list[CheckError]` — empty list means no errors.
 ### `run_basic_checks` `[IMPLEMENTED]`
 
 ```python
-def run_basic_checks(journal: Journal) -> list[CheckError]:
-    """Run parseable + autobalanced checks. Always run by the CLI."""
+def run_basic_checks(
+    journal: Journal,
+    *,
+    skip: frozenset[str] | None = None,
+) -> list[CheckError]:
+    """Run parseable + autobalanced + assertions checks. Always run by the CLI.
+
+    skip: names to suppress (e.g. frozenset({"assertions"}) for -I flag).
+    """
 ```
 
 ---
@@ -416,7 +441,11 @@ def run_basic_checks(journal: Journal) -> list[CheckError]:
 ### `run_strict_checks` `[IMPLEMENTED]`
 
 ```python
-def run_strict_checks(journal: Journal) -> list[CheckError]:
+def run_strict_checks(
+    journal: Journal,
+    *,
+    skip: frozenset[str] | None = None,
+) -> list[CheckError]:
     """Run basic checks plus accounts + commodities checks."""
 ```
 
@@ -430,12 +459,15 @@ def run_checks(
     names: list[str] | None = None,
     *,
     strict: bool = False,
+    skip: frozenset[str] | None = None,
 ) -> list[CheckError]:
     """Run basic checks always; strict checks if strict=True;
     named 'other' checks if listed in names.
 
-    Valid names: "parseable", "autobalanced", "accounts", "commodities",
-    "payees", "ordereddates", "uniqueleafnames".
+    skip: names to suppress entirely (e.g. frozenset({"assertions"}) for -I).
+
+    Valid names: "parseable", "autobalanced", "assertions", "accounts",
+    "commodities", "payees", "ordereddates", "uniqueleafnames".
 
     Raises:
         ValueError: if an unknown check name is provided.
@@ -578,6 +610,9 @@ Flags:
                      and commodity symbols are declared via account/commodity
                      directives. Equivalent to running check accounts commodities
                      in addition to the default basic checks.
+  -I, --ignore-assertions
+                     Disable balance assertion checking (the assertions basic
+                     check). Useful for troubleshooting or loading Ledger files.
   -v, --verbose      More detailed output (stats: show commodity names)
   -1                 Single tab-separated line (stats only)
   -o, --output-file  Write output to FILE instead of stdout
