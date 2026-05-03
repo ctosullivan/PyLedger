@@ -12,7 +12,7 @@ from PyLedger.models import (
 from PyLedger.reports import JournalStats, balance_from_spec
 from PyLedger.checks import CheckError
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 __all__ = [
     "load",
     "BalanceAssertion",
