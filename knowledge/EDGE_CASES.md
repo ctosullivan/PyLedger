@@ -114,3 +114,13 @@ transaction identity field, so the CLI cannot distinguish the boundary without a
 **Workaround:** None currently. A future fix would either add a transaction ID/index to
 `RegisterRow`, or pass grouped rows from `register()`.
 **Source:** Identified during register CLI formatting work, 2026-05-02.
+
+---
+
+## EC-013 — Trailing decimal point with no fractional digits (`$1,350,000.`)
+
+**Trigger:** Posting amount with a decimal mark but no following digits, e.g. `$1,350,000.` or `1.234, EUR` (comma-decimal mode).
+**Expected behaviour:** hledger accepts this as valid; parsed as the integer quantity (`Decimal("1350000")`).
+**Previous behaviour (PyLedger):** `ParseError: invalid amount` — regex required `\d+` after the decimal point.
+**Fix:** Changed `(?:\.\d+)?` → `(?:\.\d*)?` in `_AMOUNT`; `(?:,\d+)?` → `(?:,\d*)?` in `_AMOUNT_COMMA`. Python's `Decimal("1350000.")` is valid and equals `Decimal("1350000")`.
+**Status:** Handled ✓ (`test_trailing_decimal_period`, `test_trailing_decimal_comma_mode`)

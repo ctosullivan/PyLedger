@@ -151,6 +151,35 @@ class TestThousandsSeparator(unittest.TestCase):
         self.assertEqual(amount.commodity, "£")
 
 
+class TestTrailingDecimal(unittest.TestCase):
+    """Test 7b: trailing decimal point with no fractional digits ($1,000.)."""
+
+    def test_trailing_decimal_period(self):
+        """Amount with trailing period and no fractional digits is valid."""
+        journal = parse_string(
+            "2024-01-05 Large transfer\n"
+            "    assets:bank  $1,350,000.\n"
+            "    income:salary  -$1,350,000.\n"
+        )
+        amount = journal.transactions[0].postings[0].amount
+        assert amount is not None
+        self.assertEqual(amount.quantity, Decimal("1350000"))
+        self.assertEqual(amount.commodity, "$")
+
+    def test_trailing_decimal_comma_mode(self):
+        """Amount with trailing comma (comma-decimal mode) and no fractional digits is valid."""
+        journal = parse_string(
+            "decimal-mark ,\n"
+            "2024-01-05 Large transfer\n"
+            "    assets:bank  1.350.000, EUR\n"
+            "    income:salary  -1.350.000, EUR\n"
+        )
+        amount = journal.transactions[0].postings[0].amount
+        assert amount is not None
+        self.assertEqual(amount.quantity, Decimal("1350000"))
+        self.assertEqual(amount.commodity, "EUR")
+
+
 class TestComments(unittest.TestCase):
     """Test 8: comment lines are ignored; inline comments are captured."""
 
