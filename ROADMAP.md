@@ -84,7 +84,7 @@ Implement a working parser so that `.journal` files can be loaded into memory as
 
 ---
 
-## Milestone 2 — Core Reports `[IN PROGRESS]`
+## Milestone 2 — Core Reports `[DONE]`
 
 Implement the `Query` filter dataclass, all four report functions, and the
 `ReportSpec` / `ReportSection` foundation for custom report layouts.
@@ -116,7 +116,7 @@ Implement the `Query` filter dataclass, all four report functions, and the
 - Commodity valuation using `Journal.prices` (multi-commodity balance reports)
 
 **Exit criteria:**
-- `python -m unittest discover -s tests -t . -v` — all 327 tests pass ✅
+- `python -m unittest discover -s tests -t . -v` — all 363 tests pass ✅
 - `from PyLedger import Query, ReportSpec, ReportSection, ReportSectionResult, balance_from_spec` succeeds ✅
 - `balance`, `register`, `accounts`, `stats` each return correct results with no query ✅
 - `balance(journal, query=Query(account="expenses"))` returns only expense rows ✅
@@ -129,7 +129,7 @@ Implement the `Query` filter dataclass, all four report functions, and the
 
 ## Milestone 3 — First Release `[BACKLOG]`
 
-> **Scope to be confirmed by user.**
+> **Scope partially confirmed. Full scope to be confirmed before starting.**
 
 Package the project for distribution and establish a baseline release. Also completes
 deferred items from Milestone 2.
@@ -138,10 +138,10 @@ deferred items from Milestone 2.
 - CLI filter flags (`--account`, `--date`, `--payee`) wired to `Query`
 - Journal-comment `ReportSpec` parsing (`; report` / `; end report` syntax)
 - Full `stats` query support (account-level filters)
+- **Limited multi-commodity support** — `balance` and `register` show multiple
+  commodities per account rather than assuming a single commodity ✓ confirmed
 - `pip install -e .` installs cleanly; `PyLedger --help` works
-- Version pinned in `__init__.py` and `pyproject.toml`
 - `README.md` and `docs/` updated with real usage examples
-- Changelog entry for `v0.1.0`
 
 ---
 

@@ -1,43 +1,38 @@
 # Context — 2026-05-03
 
 ## Current Task
-Implement balance assertions (`=`, `==`, `=*`, `==*`) as part of Milestone 2.
+Milestone 2 complete. Starting Milestone 3 planning.
 
 ## Where We Are
-Implementation complete. 361 tests pass. All docs updated. Awaiting user commit
-confirmation. Milestone 2 still awaiting explicit `[DONE]` confirmation from user.
+Milestone 2 marked `[DONE]`. Version bumped to 0.3.0. All changes committed.
+Milestone 3 scope partially confirmed: limited multi-commodity support confirmed in;
+full scope not yet agreed.
 
 ## Decisions In Flight
-- Balance assignments (`= AMOUNT` with no preceding posting amount) are parsed
-  but not validated — deferred to a future milestone. See `knowledge/DECISIONS.md`.
-- `balance()` still returns `dict[str, Decimal]` (no commodity); multi-commodity
-  balance display deferred.
+- Balance assignments (`= AMOUNT` with no preceding posting amount) deferred to
+  a future milestone. See `knowledge/DECISIONS.md`.
+- Milestone 3 full scope not yet confirmed by user — see ROADMAP.md candidate list.
 
 ## Files Currently Relevant
-- `PyLedger/models.py` — new `BalanceAssertion` dataclass; `Posting.balance_assertion` field
-- `PyLedger/parser.py` — `_ASSERTION_MARKER_RE`; updated `_parse_posting`
-- `PyLedger/checks.py` — `check_assertions`; updated constants/runners with `skip` param
-- `PyLedger/cli.py` — `-I`/`--ignore-assertions` flag
-- `tests/fixtures/assertions_pass.journal`, `tests/fixtures/assertions_fail.journal`
-- `tests/test_checks/test_checks.py` — `TestCheckAssertions` (12 tests)
-- `tests/test_cli/test_cli.py` — `TestBalanceAssertions` (6 tests)
+- `ROADMAP.md` — Milestone 3 candidate scope (partially confirmed)
+- `PyLedger/reports.py` — `balance()` returns `dict[str, Decimal]`; will need
+  rework for multi-commodity support
+- `PyLedger/cli.py` — balance/register display assumes single commodity via
+  `_primary_commodity`
 
 ## Blockers / Open Questions
-- Milestone 2 `[DONE]` confirmation still pending from user.
-- Balance assignments (amount inferred from assertion) deferred — tracked in DECISIONS.md.
+- Milestone 3 full scope needs user confirmation before implementation begins.
+- What "limited multi-commodity" means precisely:
+  - Does `balance` return `dict[str, dict[str, Decimal]]` (account → commodity → amount)?
+  - Or a list of `(account, commodity, amount)` rows?
+  - Does the CLI show one row per commodity per account?
 
 ## What NOT To Revisit
-- `assertions` is basic tier (not other tier) — this is intentional; see DECISIONS.md.
+- `assertions` is basic tier (not other tier) — see `knowledge/DECISIONS.md`.
 - `RegisterRow` date+description continuation key is a known limitation (EC-012).
-- CLI filter flag integration (`-b`/`-e` dates, `-A` account) is Milestone 3.
-- Commodity valuation using `Journal.prices` is Milestone 3.
+- Balance assignments (amount inferred from assertion) deferred — tracked in DECISIONS.md.
 
 ## Recent Git State
 ```
-acc93a3 feat: Milestone 2 core reports and hledger-aligned CLI output
-2bf467e chore: add knowledge base and CONTEXT.md session memory
-1493424 chore: bump version number & mark Milestone 2 as in progress
-9385430 chore: complete Milestone 1 & update project roadmap
-695ee5e test: guard Optional amount access with assert-not-None
+(will be filled after commit)
 ```
-(Balance assertions work is uncommitted.)
