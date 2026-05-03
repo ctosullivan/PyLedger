@@ -7,7 +7,7 @@ import unittest
 from decimal import Decimal
 
 from PyLedger.models import Amount, Journal, Posting, Transaction
-from PyLedger.parser import ParseError, parse_string
+from PyLedger.parser import ParseError, parse_string, parse_string_lenient, resolve_elision
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 SAMPLE_JOURNAL = os.path.join(FIXTURES, "sample.journal")
@@ -370,6 +370,259 @@ class TestSimpleDateFormats(unittest.TestCase):
                 "    expenses:food  £10.00\n"
                 "    assets:bank  -£10.00\n"
             )
+
+
+# ---------------------------------------------------------------------------
+# resolve_elision()
+# ---------------------------------------------------------------------------
+
+def _make_txn(postings: list[tuple[str, str | None]]) -> Transaction:
+    """Build a Transaction with simple postings for resolve_elision tests."""
+    ps = []
+    for acct, amt_str in postings:
+        if amt_str is None:
+            ps.append(Posting(account=acct, source_line=1))
+        else:
+            neg = amt_str.startswith("-")
+            inner = amt_str.lstrip("-")
+            if inner and not inner[0].isdigit():
+                # Symbol-prefixed: e.g. "£10.00" or "-£10.00"
+                for i, ch in enumerate(inner):
+                    if ch.isdigit():
+                        sym = inner[:i]
+                        qty_s = inner[i:]
+                        break
+                else:
+                    sym = inner
+                    qty_s = "0"
+                qty = Decimal(qty_s) * (-1 if neg else 1)
+            else:
+                # Post-fix symbol: e.g. "20.00 EUR" or "5.00"
+                parts = amt_str.split()
+                qty = Decimal(parts[0])
+                sym = parts[1] if len(parts) > 1 else ""
+            ps.append(Posting(account=acct, amount=Amount(qty, sym), source_line=1))
+    import datetime as _dt
+    return Transaction(date=_dt.date(2024, 1, 1), description="Test", postings=ps)
+
+
+class TestResolveElision(unittest.TestCase):
+    """Tests for resolve_elision()."""
+
+    def test_no_elided_returns_postings_unchanged(self):
+        txn = _make_txn([("assets", "£10.00"), ("income", "-£10.00")])
+        result = resolve_elision(txn)
+        self.assertEqual(len(result), 2)
+        self.assertFalse(any(p.inferred for p in result))
+
+    def test_single_elided_single_commodity_infers_correct_amount(self):
+        # assets £10 + income £-10 → elided should get £0... wait:
+        # income:salary has elided amount; given = assets:bank £3000
+        # inferred = -£3000 for income:salary
+        txn = _make_txn([("assets:bank", "£3000.00"), ("income:salary", None)])
+        result = resolve_elision(txn)
+        self.assertEqual(len(result), 2)
+        elided_resolved = next(p for p in result if p.account == "income:salary")
+        self.assertEqual(elided_resolved.amount, Amount(Decimal("-3000.00"), "£"))
+        self.assertTrue(elided_resolved.inferred)
+
+    def test_single_elided_two_commodities_produces_two_postings(self):
+        txn = _make_txn([("a", "£10.00"), ("b", "$5.00"), ("equity", None)])
+        result = resolve_elision(txn)
+        # equity should become 2 postings: one for £, one for $
+        self.assertEqual(len(result), 4)
+        inferred = [p for p in result if p.inferred]
+        self.assertEqual(len(inferred), 2)
+        commodities = {p.amount.commodity for p in inferred}
+        self.assertEqual(commodities, {"£", "$"})
+
+    def test_inferred_posting_has_inferred_true(self):
+        txn = _make_txn([("a", "£10.00"), ("equity", None)])
+        result = resolve_elision(txn)
+        inferred = [p for p in result if p.inferred]
+        self.assertEqual(len(inferred), 1)
+        self.assertTrue(inferred[0].inferred)
+
+    def test_non_elided_postings_have_inferred_false(self):
+        txn = _make_txn([("a", "£10.00"), ("equity", None)])
+        result = resolve_elision(txn)
+        non_inferred = [p for p in result if not p.inferred]
+        self.assertEqual(len(non_inferred), 1)
+        self.assertFalse(non_inferred[0].inferred)
+
+    def test_inferred_amounts_are_negations(self):
+        txn = _make_txn([("a", "£10.00"), ("b", "$5.00"), ("equity", None)])
+        result = resolve_elision(txn)
+        inferred = sorted([p for p in result if p.inferred],
+                          key=lambda p: p.amount.commodity)
+        # Sorted alphabetically: $, £
+        self.assertEqual(inferred[0].amount, Amount(Decimal("-5.00"), "$"))
+        self.assertEqual(inferred[1].amount, Amount(Decimal("-10.00"), "£"))
+
+    def test_commodity_sort_order(self):
+        txn = _make_txn([("a", "£10.00"), ("b", "$5.00"),
+                          ("c", "20.00 EUR"), ("equity", None)])
+        result = resolve_elision(txn)
+        inferred = [p for p in result if p.inferred]
+        self.assertEqual(
+            [p.amount.commodity for p in inferred],
+            sorted(["EUR", "$", "£"]),
+        )
+
+    def test_elided_position_preserved_in_middle(self):
+        txn = _make_txn([("a", "£10.00"), ("equity", None), ("b", "-£10.00")])
+        result = resolve_elision(txn)
+        # equity (index 1) gets replaced; a stays at 0, b stays at last
+        self.assertEqual(result[0].account, "a")
+        self.assertEqual(result[-1].account, "b")
+        middle = result[1]
+        self.assertEqual(middle.account, "equity")
+        self.assertTrue(middle.inferred)
+
+    def test_two_elided_returns_unchanged(self):
+        txn = _make_txn([("a", "£10.00"), ("x", None), ("y", None)])
+        result = resolve_elision(txn)
+        # 2 elided → unchanged
+        self.assertEqual(len(result), 3)
+        self.assertFalse(any(p.inferred for p in result))
+
+    def test_empty_given_returns_unchanged(self):
+        txn = _make_txn([("equity", None)])
+        result = resolve_elision(txn)
+        self.assertEqual(len(result), 1)
+        self.assertFalse(result[0].inferred)
+
+    def test_inferred_posting_inherits_source_line(self):
+        txn = _make_txn([("a", "£10.00"), ("equity", None)])
+        # source_line is set to 1 by _make_txn for all postings
+        result = resolve_elision(txn)
+        inferred = next(p for p in result if p.inferred)
+        self.assertEqual(inferred.source_line, 1)
+
+
+# ---------------------------------------------------------------------------
+# parse_string_lenient()
+# ---------------------------------------------------------------------------
+
+class TestParseStringLenient(unittest.TestCase):
+    """Tests for parse_string_lenient()."""
+
+    def test_valid_journal_returns_no_errors(self):
+        text = "2024-01-01 Test\n    assets  £10\n    income  -£10\n"
+        journal, errors = parse_string_lenient(text)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(journal.transactions), 1)
+
+    def test_lenient_never_raises(self):
+        for bad_input in [
+            "not a journal at all",
+            "2024-01-01 Test\n    bad amount !!!\n",
+            "\x00\xff garbage",
+            "2024-13-45 Invalid date\n    assets £10\n",
+            "    indented with no block",
+        ]:
+            try:
+                journal, errors = parse_string_lenient(bad_input)
+            except Exception as exc:
+                self.fail(f"parse_string_lenient raised {exc!r} for input {bad_input!r}")
+
+    def test_malformed_txn_discarded_valid_txn_kept(self):
+        text = (
+            "2024-01-01 Good\n"
+            "    assets  £10\n"
+            "    income  -£10\n"
+            "\n"
+            "2024-01-02 Bad\n"
+            "    assets  NOT_AN_AMOUNT!!!\n"
+            "\n"
+            "2024-01-03 Also good\n"
+            "    assets  £5\n"
+            "    income  -£5\n"
+        )
+        journal, errors = parse_string_lenient(text)
+        self.assertEqual(len(journal.transactions), 2)
+        self.assertEqual(len(errors), 1)
+
+    def test_recovery_continues_after_error(self):
+        text = (
+            "2024-01-01 Valid first\n"
+            "    a  £10\n"
+            "    b  -£10\n"
+            "\n"
+            "2024-13-01 Bad date\n"
+            "    a  £5\n"
+            "    b  -£5\n"
+            "\n"
+            "2024-03-01 Valid last\n"
+            "    a  £20\n"
+            "    b  -£20\n"
+        )
+        journal, errors = parse_string_lenient(text)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(len(journal.transactions), 2)
+        self.assertEqual(journal.transactions[0].description, "Valid first")
+        self.assertEqual(journal.transactions[1].description, "Valid last")
+
+    def test_posting_outside_block_caught_leniently(self):
+        text = "    orphan posting  £10\n\n2024-01-01 Valid\n    a  £5\n    b  -£5\n"
+        journal, errors = parse_string_lenient(text)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("posting found outside", str(errors[0]))
+        self.assertEqual(len(journal.transactions), 1)
+
+    def test_multiple_elided_in_one_txn_discarded(self):
+        text = (
+            "2024-01-01 Bad elision\n"
+            "    a  £10\n"
+            "    x\n"
+            "    y\n"
+            "\n"
+            "2024-02-01 Good\n"
+            "    a  £5\n"
+            "    b  -£5\n"
+        )
+        journal, errors = parse_string_lenient(text)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("at most one elided", str(errors[0]))
+        self.assertEqual(len(journal.transactions), 1)
+        self.assertEqual(journal.transactions[0].description, "Good")
+
+    def test_errors_have_line_numbers(self):
+        text = "2024-13-01 Bad\n    a £10\n    b -£10\n"
+        _, errors = parse_string_lenient(text)
+        self.assertEqual(len(errors), 1)
+        self.assertIsNotNone(errors[0].line_number)
+
+    def test_empty_string_returns_empty_journal(self):
+        journal, errors = parse_string_lenient("")
+        self.assertEqual(errors, [])
+        self.assertEqual(len(journal.transactions), 0)
+
+    def test_valid_journal_same_result_as_strict(self):
+        text = (
+            "2024-01-01 Opening\n"
+            "    assets:bank  £1000.00\n"
+            "    equity:opening\n"
+            "\n"
+        )
+        strict = parse_string(text, default_year=2024)
+        lenient, errors = parse_string_lenient(text, default_year=2024)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(lenient.transactions), len(strict.transactions))
+
+    def test_bad_txn_followed_directly_by_good_without_blank(self):
+        # Two transactions with no blank line; first has a bad amount.
+        text = (
+            "2024-01-01 Bad\n"
+            "    a  NOT_VALID\n"
+            "2024-01-02 Good\n"
+            "    a  £5\n"
+            "    b  -£5\n"
+        )
+        journal, errors = parse_string_lenient(text)
+        self.assertGreaterEqual(len(errors), 1)
+        good = [t for t in journal.transactions if t.description == "Good"]
+        self.assertEqual(len(good), 1)
 
 
 if __name__ == "__main__":

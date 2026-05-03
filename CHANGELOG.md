@@ -14,6 +14,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+### [Unreleased] — feat: Milestone 3 — lenient parser, multi-commodity balance, tree mode, CheckError.line_number
+
+**Human:** Implement Milestone 3: add `parse_string_lenient` for on-keystroke live parsing, add `CheckError.line_number` for clickable editor diagnostics, fix multi-commodity elision (one elided posting now generates N postings for N commodities), and change `balance()` to return `dict[str, dict[str, Decimal]]` with an optional `tree=True` mode returning `list[BalanceRow]`.
+
+**Claude:** Added `Posting.inferred` field and `BalanceRow` dataclass to `models.py`. Added public `resolve_elision()` to `parser.py` that handles the N-commodity elided posting case; refactored parser body into `_parse_string_impl` with `skip_until_blank` error-recovery state; added `parse_string_lenient()` that never raises. Added `line_number: int | None = None` to `CheckError` and propagated it in all six check functions; removed the multi-commodity ambiguity error from `_check_txn_balanced` (one elided posting is always valid regardless of commodity count). Replaced `_infer_elided_posting_amount` with `resolve_elision()` in `reports.py`; updated `balance()` to return per-commodity nested dict and added `_build_balance_tree()` helper; updated `register()` and `balance_from_spec()`. Updated `cli.py` balance display to hledger-style: account name only on the last commodity line per account, negative amounts in ANSI red. Re-exported `BalanceRow`, `parse_string_lenient`, `resolve_elision` from `__init__.py`; bumped `__version__` to `"0.4.0"`. Added `tests/fixtures/multicommodity.journal`, `TestResolveElision` (11 tests), `TestParseStringLenient` (10 tests), `TestCheckErrorLineNumber` (6 tests), `TestBalanceMultiCommodity` (15 tests). Updated all existing balance assertions for the new nested-dict return type.
+
+---
+
 ### [Unreleased] — chore: release v0.3.0 and mark Milestone 2 done
 
 **Human:** Mark Milestone 2 complete, archive its changelog entries, include limited multi-commodity support in Milestone 3 scope, bump version to 0.3.0.

@@ -42,14 +42,18 @@ class CheckError:
     """A single validation failure produced by a check function.
 
     Attributes:
-        check_name: Identifier of the check that raised this error (e.g.
-                    "autobalanced").
-        message:    Human-readable description of the failure. May be
-                    multi-line (e.g. strict checks include source context).
+        check_name:  Identifier of the check that raised this error (e.g.
+                     "autobalanced").
+        message:     Human-readable description of the failure. May be
+                     multi-line (e.g. strict checks include source context).
+        line_number: 1-based source line of the offending transaction or
+                     posting, or None when not available (e.g. for errors
+                     that span multiple lines).
     """
 
     check_name: str
     message: str
+    line_number: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -88,43 +92,35 @@ def check_autobalanced(journal: Journal) -> list[CheckError]:
 
 def _check_txn_balanced(txn: Transaction) -> list[CheckError]:
     """Return CheckError list for a single transaction."""
-    given = [p for p in txn.postings if p.amount is not None]
     elided = [p for p in txn.postings if p.amount is None]
-
     label = f"transaction on {txn.date} ({txn.description!r})"
 
     if len(elided) > 1:
         return [CheckError(
             check_name="autobalanced",
             message=f"{label}: multiple elided postings (autobalanced)",
+            line_number=txn.source_line,
         )]
 
-    # Build per-commodity sums
+    if len(elided) == 1:
+        # Always balanced by definition: resolve_elision() will fill in the
+        # inferred amount(s). hledger allows one elided posting regardless of
+        # how many commodities are present.
+        return []
+
+    # Zero elided postings — all commodity nets must be exactly zero.
     commodity_sums: dict[str, Decimal] = {}
-    for p in given:
+    for p in txn.postings:
         c = p.amount.commodity  # type: ignore[union-attr]
         commodity_sums[c] = commodity_sums.get(c, Decimal(0)) + p.amount.quantity  # type: ignore[union-attr]
 
-    if len(elided) == 1:
-        if len(commodity_sums) > 1:
-            commodities = ", ".join(sorted(commodity_sums))
-            return [CheckError(
-                check_name="autobalanced",
-                message=(
-                    f"{label}: elided posting is ambiguous — "
-                    f"multiple commodities present ({commodities})"
-                ),
-            )]
-        # Single elided posting with one commodity → always balanced by definition
-        return []
-
-    # Zero elided postings — all commodity nets must be zero
     errors: list[CheckError] = []
     for commodity, net in sorted(commodity_sums.items()):
         if net != 0:
             errors.append(CheckError(
                 check_name="autobalanced",
                 message=f"{label}: not balanced — net {net:+} {commodity}",
+                line_number=txn.source_line,
             ))
     return errors
 
@@ -249,7 +245,11 @@ def check_accounts(journal: Journal) -> list[CheckError]:
                     f"account {posting.account}",
                     f"account {posting.account}    ; type:A  ; (L,E,R,X,C,V)",
                 ]
-                return [CheckError(check_name="accounts", message="\n".join(ctx))]
+                return [CheckError(
+                    check_name="accounts",
+                    message="\n".join(ctx),
+                    line_number=posting.source_line,
+                )]
     return []
 
 
@@ -294,7 +294,11 @@ def check_commodities(journal: Journal) -> list[CheckError]:
                     f"commodity {sym}",
                     f"commodity {amt_str}",
                 ]
-                return [CheckError(check_name="commodities", message="\n".join(ctx))]
+                return [CheckError(
+                    check_name="commodities",
+                    message="\n".join(ctx),
+                    line_number=posting.source_line,
+                )]
     return []
 
 
@@ -325,6 +329,7 @@ def check_payees(journal: Journal) -> list[CheckError]:
             errors.append(CheckError(
                 check_name="payees",
                 message=f"payee not declared: {name!r} (payees check)",
+                line_number=txn.source_line,
             ))
     return errors
 
@@ -352,6 +357,7 @@ def check_ordereddates(journal: Journal) -> list[CheckError]:
                     f"transaction on {txn.date} ({txn.description!r}) is out of order "
                     f"— appears after {prev_date} (ordereddates check)"
                 ),
+                line_number=txn.source_line,
             ))
         else:
             prev_date = txn.date
@@ -468,6 +474,7 @@ def check_assertions(journal: Journal) -> list[CheckError]:
                     f"expected {commodity}{expected}, got {commodity}{actual}"
                     + (f" (line {posting.source_line})" if posting.source_line else "")
                 ),
+                line_number=posting.source_line,
             ))
 
         if ba.sole_commodity:
@@ -493,6 +500,7 @@ def check_assertions(journal: Journal) -> list[CheckError]:
                             f"unexpected non-zero {other_comm} balance {other_qty}"
                             + (f" (line {posting.source_line})" if posting.source_line else "")
                         ),
+                        line_number=posting.source_line,
                     ))
 
     return errors

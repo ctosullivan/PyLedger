@@ -56,6 +56,7 @@ class Posting:
     amount: Amount | None = None
     balance_assertion: BalanceAssertion | None = field(default=None)
     source_line: int | None = field(default=None, repr=False)
+    inferred: bool = field(default=False, repr=False)
 
 
 @dataclass
@@ -120,6 +121,25 @@ class RegisterRow:
     account:         str
     amount:          Amount
     running_balance: Decimal
+
+
+@dataclass
+class BalanceRow:
+    """One row in a tree-mode balance report.
+
+    Attributes:
+        account: Full colon-separated account name.
+        depth: Number of ':' separators (0 = single root segment).
+        amounts: Mapping of commodity symbol to net balance (own postings +
+                 all descendants).
+        is_subtotal: True when this account has no direct postings and exists
+                     only as an implicit parent aggregating its descendants.
+    """
+
+    account: str
+    depth: int
+    amounts: dict[str, Decimal]
+    is_subtotal: bool
 
 
 # ---------------------------------------------------------------------------
@@ -219,14 +239,18 @@ class Journal:
         self,
         accounts: list[str] | None = None,
         query: Query | None = None,
-    ) -> dict[str, Decimal]:
-        """Return a mapping of account name to net balance.
+        tree: bool = False,
+    ) -> dict[str, dict[str, Decimal]] | list[BalanceRow]:
+        """Return per-commodity net balances for each account.
 
         Args:
             accounts: [Deprecated] Optional list of account name substrings to
                       filter by. Use query= for new code.
             query: Optional Query to filter postings. Takes precedence over
                    accounts when both are supplied.
+            tree: When True, returns list[BalanceRow] with implicit parent
+                  accounts and subtotals. When False (default), returns a flat
+                  dict[str, dict[str, Decimal]] (account → commodity → net).
         """
         from PyLedger.reports import balance as _balance
         # Deprecated 'accounts' param: convert to Query for backward compat.
@@ -237,7 +261,7 @@ class Journal:
             else:
                 pattern = "|".join(f"(?:{_re.escape(a)})" for a in accounts)
                 query = Query(account=pattern)
-        return _balance(self, query)
+        return _balance(self, query, tree=tree)
 
     def register(
         self,

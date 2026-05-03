@@ -73,6 +73,7 @@ class Posting:
     amount: Amount | None = None                    # None means "infer from other postings"
     balance_assertion: BalanceAssertion | None = None  # optional inline assertion
     source_line: int | None = None                  # 1-based line number; None for programmatic objects
+    inferred: bool = False                          # True for postings synthesised by resolve_elision()
 ```
 
 One line within a transaction, mapping an account to an amount.
@@ -81,6 +82,10 @@ The wire format requires **two or more spaces** between the account name and the
 amount. A single space is treated as part of the account name, allowing names such
 as `expenses:fun money`. When no double-space separator is present, the posting has
 no amount (`amount=None` — elided).
+
+`inferred` is set to `True` on postings synthesised by `resolve_elision()` and is
+`False` for all postings parsed directly from journal text. `repr=False` keeps the
+dataclass repr clean.
 
 ---
 
@@ -165,7 +170,8 @@ called directly (no file I/O), it remains `0`.
 
 ```python
 def balance(self, accounts: list[str] | None = None,
-            query: Query | None = None) -> dict[str, Decimal]: ...
+            query: Query | None = None,
+            tree: bool = False) -> dict[str, dict[str, Decimal]] | list[BalanceRow]: ...
 def register(self, accounts: list[str] | None = None,
              query: Query | None = None) -> list[RegisterRow]: ...
 def accounts(self) -> list[str]: ...
@@ -196,6 +202,26 @@ semantically equivalent to `query=None` (no filter). `account`, `not_account`, a
 contains a regex metacharacter, in which case `re.search` is used.
 
 Re-exported from `PyLedger.__init__` as `PyLedger.Query`.
+
+---
+
+### `BalanceRow` `[NEW — Milestone 3]`
+
+```python
+@dataclass
+class BalanceRow:
+    account: str               # full account path, e.g. "assets:bank"
+    depth: int                 # number of ':' separators (0 = top-level)
+    amounts: dict[str, Decimal]  # commodity → net balance (own + descendants)
+    is_subtotal: bool          # True for implicit parent accounts with no direct postings
+```
+
+One row in a tree-mode balance report, as returned by `balance(tree=True)`.
+`amounts` aggregates all descendant postings in addition to the account's own postings.
+`is_subtotal` is `True` when the account name appears as a prefix in another account's
+path but has no postings directly attributed to it.
+
+Re-exported from `PyLedger.__init__` as `PyLedger.BalanceRow`.
 
 ---
 
@@ -308,6 +334,56 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
 
 ---
 
+### `parse_string_lenient` `[NEW — Milestone 3]`
+
+```python
+def parse_string_lenient(
+    text: str,
+    default_year: int | None = None,
+) -> tuple[Journal, list[ParseError]]:
+    """Parse leniently, returning (journal_with_valid_txns, list_of_errors).
+
+    Never raises. Intended for editor on_text_changed callbacks. Malformed
+    transactions are skipped; valid transactions are included in the returned
+    Journal. Directive-level errors (bad P directive, etc.) are also collected
+    rather than raised.
+
+    default_year: used for year-omitted dates; defaults to the current calendar
+    year when None.
+    """
+```
+
+Re-exported from `PyLedger.__init__` as `PyLedger.parse_string_lenient`.
+
+---
+
+### `resolve_elision` `[NEW — Milestone 3]`
+
+```python
+def resolve_elision(txn: Transaction) -> list[Posting]:
+    """Resolve any single elided posting in txn into N concrete inferred postings.
+
+    hledger rule: exactly one posting per transaction may have no amount. Its
+    value is the negation of the sum of all other postings, computed
+    independently per commodity. For N commodities in the other postings, N
+    synthetic Posting objects are produced (sorted by commodity name) and
+    spliced in at the elided posting's position.
+
+    Returns list(txn.postings) unchanged when:
+      - There are 0 elided postings (already fully specified)
+      - There are 2+ elided postings (invalid — not resolved here)
+      - All explicit postings have zero total (nothing to infer)
+
+    Synthesised postings have inferred=True. Original postings retain
+    inferred=False regardless of whether they came from parsed text or were
+    constructed programmatically.
+    """
+```
+
+Re-exported from `PyLedger.__init__` as `PyLedger.resolve_elision`.
+
+---
+
 ---
 
 ## `PyLedger/loader.py`
@@ -382,14 +458,20 @@ def merge_journals(journals: list[Journal]) -> Journal:
 
 ## `PyLedger/checks.py`
 
-### `CheckError` `[IMPLEMENTED]`
+### `CheckError` `[UPDATED — Milestone 3]`
 
 ```python
 @dataclass
 class CheckError:
-    check_name: str   # e.g. "autobalanced", "accounts"
-    message: str      # human-readable single-line description
+    check_name: str          # e.g. "autobalanced", "accounts"
+    message: str             # human-readable single-line description
+    line_number: int | None = None  # 1-based source line of the offending entry; None when unavailable
 ```
+
+`line_number` is populated for all transaction-level errors (autobalanced, assertions,
+payees, ordereddates, accounts, commodities) and is `None` for errors without a
+single clear source line (e.g. `uniqueleafnames`). The default is `None` for backward
+compatibility with code that constructs `CheckError` directly.
 
 Also re-exported from `PyLedger.__init__` as `PyLedger.CheckError`.
 
@@ -481,19 +563,43 @@ def run_checks(
 All report functions accept a `Journal` as their first argument and are also
 accessible as methods on `Journal` directly (e.g. `journal.balance()`).
 
-### `balance` `[IMPLEMENTED — Milestone 2]`
+### `balance` `[UPDATED — Milestone 3]`
 
 ```python
 def balance(
     journal: Journal,
     query: Query | None = None,
-) -> dict[str, Decimal]:
-    """Return a mapping of account name to net balance."""
+    tree: bool = False,
+) -> dict[str, dict[str, Decimal]] | list[BalanceRow]:
+    """Return account balances, optionally in tree form.
+
+    Flat mode (tree=False, default):
+        Returns dict[account, dict[commodity, net_balance]].
+        Only accounts with at least one matching posting are included.
+
+    Tree mode (tree=True):
+        Returns list[BalanceRow] sorted alphabetically by account path.
+        Implicit parent accounts (no direct postings) are included with
+        is_subtotal=True. Amounts aggregate own + all descendant postings.
+
+    Elided posting amounts are resolved via resolve_elision() before
+    aggregation. depth in the query truncates (rolls up) account names —
+    matching hledger --depth behaviour.
+    """
 ```
 
-Only accounts appearing in at least one matching posting are included. Elided posting
-amounts are inferred before aggregation. `depth` in the query causes account names to
-be **truncated** (rolled up) rather than excluded — matching hledger `--depth` behaviour.
+**Breaking change from Milestone 2**: the return type changed from
+`dict[str, Decimal]` (single commodity assumed) to
+`dict[str, dict[str, Decimal]]` (commodity-keyed). Update callers as:
+```python
+# Before (Milestone 2):
+bal = journal.balance()["assets:bank"]  # Decimal
+# After (Milestone 3):
+bal = journal.balance()["assets:bank"]["£"]  # Decimal
+```
+
+`balance_from_spec` retains its `dict[str, Decimal]` return type (multi-commodity
+support for spec-based reports is deferred).
 
 ---
 

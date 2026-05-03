@@ -252,12 +252,12 @@ class TestBalanceReport(unittest.TestCase):
 
     def test_all_balances_no_query(self):
         result = balance(self.journal)
-        self.assertEqual(result["assets:bank:checking"], Decimal("9641.00"))
-        self.assertEqual(result["equity:opening-balances"], Decimal("-5000.00"))
-        self.assertEqual(result["income:salary"], Decimal("-6000.00"))
-        self.assertEqual(result["expenses:housing:rent"], Decimal("1200.00"))
-        self.assertEqual(result["expenses:food:groceries"], Decimal("150.00"))
-        self.assertEqual(result["expenses:food:coffee"], Decimal("9.00"))
+        self.assertEqual(result["assets:bank:checking"]["£"], Decimal("9641.00"))
+        self.assertEqual(result["equity:opening-balances"]["£"], Decimal("-5000.00"))
+        self.assertEqual(result["income:salary"]["£"], Decimal("-6000.00"))
+        self.assertEqual(result["expenses:housing:rent"]["£"], Decimal("1200.00"))
+        self.assertEqual(result["expenses:food:groceries"]["£"], Decimal("150.00"))
+        self.assertEqual(result["expenses:food:coffee"]["£"], Decimal("9.00"))
 
     def test_six_accounts_returned(self):
         self.assertEqual(len(balance(self.journal)), 6)
@@ -276,11 +276,11 @@ class TestBalanceReport(unittest.TestCase):
         for acct in result:
             self.assertEqual(len(acct.split(":")), 1)
         # expenses subtotal = 1200 + 150 + 9 = 1359
-        self.assertEqual(result["expenses"], Decimal("1359.00"))
+        self.assertEqual(result["expenses"]["£"], Decimal("1359.00"))
         # income subtotal = -6000
-        self.assertEqual(result["income"], Decimal("-6000.00"))
+        self.assertEqual(result["income"]["£"], Decimal("-6000.00"))
         # assets subtotal = 9641
-        self.assertEqual(result["assets"], Decimal("9641.00"))
+        self.assertEqual(result["assets"]["£"], Decimal("9641.00"))
 
     def test_depth_2_truncation(self):
         result = balance(self.journal, query=Query(depth=2))
@@ -288,7 +288,7 @@ class TestBalanceReport(unittest.TestCase):
         self.assertIn("expenses:housing", result)
         self.assertNotIn("expenses:food:groceries", result)
         # expenses:food = 150 + 9 = 159
-        self.assertEqual(result["expenses:food"], Decimal("159.00"))
+        self.assertEqual(result["expenses:food"]["£"], Decimal("159.00"))
 
     def test_not_account_exclusion(self):
         result = balance(self.journal, query=Query(not_account="assets"))
@@ -300,7 +300,7 @@ class TestBalanceReport(unittest.TestCase):
         # The last Salary transaction has income:salary as an elided posting.
         # Its inferred amount should be -£3,000.00, so total income:salary = -6000.
         result = balance(self.journal)
-        self.assertEqual(result["income:salary"], Decimal("-6000.00"))
+        self.assertEqual(result["income:salary"]["£"], Decimal("-6000.00"))
 
     def test_zero_balance_not_excluded(self):
         # A transaction with exactly offsetting postings should have zero balance.
@@ -312,7 +312,7 @@ class TestBalanceReport(unittest.TestCase):
         )
         result = balance(journal)
         self.assertIn("assets:cash", result)
-        self.assertEqual(result["assets:cash"], Decimal("0"))
+        self.assertEqual(result["assets:cash"]["£"], Decimal("0"))
 
     def test_method_on_journal_matches_function(self):
         via_method = self.journal.balance()
@@ -320,9 +320,9 @@ class TestBalanceReport(unittest.TestCase):
         self.assertEqual(via_method, via_function)
 
     def test_balance_is_balanced(self):
-        # Sum of all balances in a balanced journal must equal zero.
+        # Sum of all amounts in a balanced journal must equal zero per commodity.
         result = balance(self.journal)
-        total = sum(result.values())
+        total = sum(qty for d in result.values() for qty in d.values())
         self.assertEqual(total, Decimal("0"))
 
 
@@ -825,6 +825,113 @@ class TestBalanceFromSpec(unittest.TestCase):
         results = balance_from_spec(self.journal, spec)
         self.assertEqual(results[0].subtotal, Decimal("0"))
         self.assertEqual(results[0].rows, {})
+
+
+# ---------------------------------------------------------------------------
+# balance() — multi-commodity and tree mode
+# ---------------------------------------------------------------------------
+
+MULTICOMMODITY_JOURNAL = os.path.join(FIXTURES_DIR, "multicommodity.journal")
+
+
+class TestBalanceMultiCommodity(unittest.TestCase):
+    """balance() with multi-commodity journals and elided postings."""
+
+    def setUp(self):
+        self.journal = load_journal(MULTICOMMODITY_JOURNAL)
+
+    def test_balance_returns_nested_dict(self):
+        result = balance(self.journal)
+        self.assertIsInstance(result, dict)
+        for v in result.values():
+            self.assertIsInstance(v, dict)
+
+    def test_multicommodity_elided_resolves_correctly(self):
+        # equity:opening-balances has one elided posting with 3 commodities.
+        result = balance(self.journal)
+        equity = result["equity:opening-balances"]
+        self.assertIn("£", equity)
+        self.assertIn("$", equity)
+        self.assertIn("€", equity)
+        # Each should be the negation of the total in that commodity.
+        self.assertEqual(equity["£"], Decimal("-10000.00"))
+        self.assertEqual(equity["$"], Decimal("-5000.00"))
+        self.assertEqual(equity["€"], Decimal("-2000.00"))
+
+    def test_balance_is_zero_per_commodity(self):
+        result = balance(self.journal)
+        totals: dict[str, Decimal] = {}
+        for commodity_map in result.values():
+            for comm, qty in commodity_map.items():
+                totals[comm] = totals.get(comm, Decimal(0)) + qty
+        for comm, total in totals.items():
+            self.assertEqual(total, Decimal("0"), f"commodity {comm} does not net to 0")
+
+    def test_single_commodity_account_has_one_key(self):
+        result = balance(self.journal)
+        self.assertEqual(set(result["expenses:rent"].keys()), {"£"})
+        self.assertEqual(set(result["expenses:software"].keys()), {"$"})
+
+    def test_balance_tree_returns_list(self):
+        result = balance(self.journal, tree=True)
+        self.assertIsInstance(result, list)
+
+    def test_balance_tree_contains_balance_rows(self):
+        from PyLedger.models import BalanceRow
+        result = balance(self.journal, tree=True)
+        for row in result:
+            self.assertIsInstance(row, BalanceRow)
+
+    def test_balance_tree_implicit_parents_present(self):
+        result = balance(self.journal, tree=True)
+        accounts_in_tree = {row.account for row in result}
+        # "expenses" should appear as an implicit parent of expenses:rent, expenses:software etc.
+        self.assertIn("expenses", accounts_in_tree)
+        self.assertIn("assets", accounts_in_tree)
+
+    def test_balance_tree_is_subtotal_for_implicit_parents(self):
+        result = balance(self.journal, tree=True)
+        expenses_row = next(r for r in result if r.account == "expenses")
+        self.assertTrue(expenses_row.is_subtotal)
+
+    def test_balance_tree_is_subtotal_false_for_leaf_accounts(self):
+        result = balance(self.journal, tree=True)
+        rent_row = next(r for r in result if r.account == "expenses:rent")
+        self.assertFalse(rent_row.is_subtotal)
+
+    def test_balance_tree_depth_correct(self):
+        result = balance(self.journal, tree=True)
+        depth_map = {row.account: row.depth for row in result}
+        self.assertEqual(depth_map["expenses"], 0)
+        self.assertEqual(depth_map["expenses:rent"], 1)
+
+    def test_balance_tree_amounts_aggregate_descendants(self):
+        # "expenses" subtotal should include rent (£), software ($), conference (€).
+        result = balance(self.journal, tree=True)
+        expenses = next(r for r in result if r.account == "expenses")
+        self.assertIn("£", expenses.amounts)
+        self.assertIn("$", expenses.amounts)
+        self.assertIn("€", expenses.amounts)
+
+    def test_balance_tree_alphabetical_order(self):
+        result = balance(self.journal, tree=True)
+        accounts_list = [row.account for row in result]
+        self.assertEqual(accounts_list, sorted(accounts_list))
+
+    def test_balance_flat_false_returns_dict(self):
+        result = balance(self.journal, tree=False)
+        self.assertIsInstance(result, dict)
+
+    def test_register_multicommodity_elided_produces_multiple_rows(self):
+        # The opening balances transaction has 1 elided posting with 3 commodities.
+        # register() should produce 3 extra rows for the resolved elided posting.
+        from PyLedger.reports import register
+        rows = register(self.journal)
+        equity_rows = [r for r in rows if r.account == "equity:opening-balances"]
+        # 3 commodities → 3 synthetic postings → 3 rows for equity
+        self.assertEqual(len(equity_rows), 3)
+        commodities = {r.amount.commodity for r in equity_rows}
+        self.assertEqual(commodities, {"£", "$", "€"})
 
 
 if __name__ == "__main__":

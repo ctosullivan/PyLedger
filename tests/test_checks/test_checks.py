@@ -113,12 +113,13 @@ class TestCheckAutobalanced(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("multiple elided", errors[0].message)
 
-    def test_elided_with_multi_commodity_fails(self):
+    def test_elided_with_multi_commodity_now_valid(self):
+        # hledger rule: one elided posting is valid regardless of commodity count.
+        # resolve_elision() generates N synthetic postings — one per commodity.
         t = _txn("2024-01-01", "Multi-ccy",
                  ("assets", "£10.00"), ("other", "$5.00"), ("bridge", None))
         errors = check_autobalanced(_journal(t))
-        self.assertEqual(len(errors), 1)
-        self.assertIn("ambiguous", errors[0].message)
+        self.assertEqual(errors, [])
 
     def test_multi_commodity_no_elided_balanced(self):
         # Two commodities, each balanced independently
@@ -784,6 +785,90 @@ class TestCLICheckCommand(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(out_buf.getvalue(), "")
         self.assertEqual(err_buf.getvalue(), "")
+
+
+# ---------------------------------------------------------------------------
+# CheckError.line_number propagation
+# ---------------------------------------------------------------------------
+
+class TestCheckErrorLineNumber(unittest.TestCase):
+    """line_number field is propagated by check functions."""
+
+    def test_checkerror_line_number_defaults_to_none(self):
+        err = CheckError(check_name="test", message="msg")
+        self.assertIsNone(err.line_number)
+
+    def test_checkerror_line_number_can_be_set(self):
+        err = CheckError(check_name="test", message="msg", line_number=42)
+        self.assertEqual(err.line_number, 42)
+
+    def test_autobalanced_error_carries_source_line(self):
+        # Build a transaction with a known source_line that fails balance.
+        t = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="Unbalanced",
+            postings=[
+                Posting(account="assets", amount=Amount(Decimal("10"), "£")),
+            ],
+            source_line=7,
+        )
+        errors = check_autobalanced(_journal(t))
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].line_number, 7)
+
+    def test_autobalanced_multicommodity_elided_passes_with_no_line_number_issue(self):
+        # Multi-commodity elided is now valid — no error, so no line_number to check.
+        t = _txn("2024-01-01", "Multi-ccy",
+                 ("a", "£10.00"), ("b", "$5.00"), ("equity", None))
+        self.assertEqual(check_autobalanced(_journal(t)), [])
+
+    def test_payees_error_carries_source_line(self):
+        t = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="Undeclared Payee",
+            postings=[Posting(account="a", amount=Amount(Decimal("1"), "£"))],
+            source_line=15,
+        )
+        j = Journal(
+            transactions=[t],
+            declared_payees=["Other Payee"],
+        )
+        errors = check_payees(j)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].line_number, 15)
+
+    def test_ordereddates_error_carries_source_line(self):
+        t1 = Transaction(
+            date=datetime.date(2024, 2, 1),
+            description="Later",
+            postings=[Posting(account="a", amount=Amount(Decimal("1"), "£"))],
+            source_line=10,
+        )
+        t2 = Transaction(
+            date=datetime.date(2024, 1, 1),
+            description="Earlier but placed after",
+            postings=[Posting(account="a", amount=Amount(Decimal("1"), "£"))],
+            source_line=20,
+        )
+        errors = check_ordereddates(_journal(t1, t2))
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].line_number, 20)
+
+    def test_assertions_error_carries_source_line(self):
+        text = (
+            "2024-01-01 Opening\n"
+            "    assets:bank  £100.00\n"
+            "    equity\n"
+            "\n"
+            "2024-01-02 Check\n"
+            "    assets:bank  £0 = £999.00\n"
+            "    expenses  £0\n"
+        )
+        j = parse_string(text)
+        errors = check_assertions(j)
+        self.assertEqual(len(errors), 1)
+        # line_number should be set (non-None)
+        self.assertIsNotNone(errors[0].line_number)
 
 
 if __name__ == "__main__":

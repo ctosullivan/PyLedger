@@ -577,27 +577,73 @@ def _apply_aliases(account: str, aliases: list[tuple[str, str, bool]]) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse_string(text: str, default_year: int | None = None) -> Journal:
-    """Parse a journal from a string and return a Journal object.
+def resolve_elision(txn: Transaction) -> list[Posting]:
+    """Return the full posting list for txn with any elided amount resolved.
 
-    Uses a line-by-line state machine. A transaction block begins on any
-    non-indented line whose first token is a simple date and ends on the first
-    subsequent blank line, or at EOF. Posting lines are conventionally indented
-    with 2+ spaces or a tab, but indentation is not strictly required; any line
-    inside an open transaction block that is not a blank line, comment, new
-    transaction header, or recognised directive is treated as a posting.
+    If txn has zero elided postings, returns list(txn.postings) unchanged.
+    If txn has one elided posting and exactly one commodity in the explicit
+    postings, replaces the elided posting with one inferred Posting whose
+    amount is the negation of that commodity's net.
+    If txn has one elided posting and N > 1 commodities, replaces the elided
+    posting with N inferred Postings (one per commodity, sorted by symbol).
 
-    Accepted date formats: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD, and year-omitted
-    forms such as M/DD or MM-DD. Leading zeros on month and day are optional.
-    When the year is omitted from a date, default_year is used; if default_year
-    is None it defaults to the current calendar year at parse time.
+    Edge cases:
+      - 2+ elided postings: returns list(txn.postings) unchanged (parse-time error).
+      - All explicit postings have amount=None (empty commodity_sums): returns
+        list(txn.postings) unchanged.
+      - Inferred postings carry inferred=True and the elided posting's source_line.
 
-    Raises:
-        ParseError: if the input is not valid hledger journal syntax.
+    Args:
+        txn: A Transaction, parsed or constructed programmatically.
+
+    Returns:
+        List of Posting objects representing the resolved transaction.
     """
-    if default_year is None:
-        default_year = datetime.date.today().year
+    elided_indices = [i for i, p in enumerate(txn.postings) if p.amount is None]
+    if len(elided_indices) != 1:
+        return list(txn.postings)
 
+    elided_idx = elided_indices[0]
+    elided_posting = txn.postings[elided_idx]
+
+    # Build per-commodity sums from all explicit postings.
+    commodity_sums: dict[str, Decimal] = {}
+    for p in txn.postings:
+        if p.amount is None:
+            continue
+        c = p.amount.commodity
+        commodity_sums[c] = commodity_sums.get(c, Decimal(0)) + p.amount.quantity
+
+    if not commodity_sums:
+        return list(txn.postings)
+
+    # Generate one synthetic posting per commodity (sorted for determinism).
+    synthetic = [
+        Posting(
+            account=elided_posting.account,
+            amount=Amount(-net, commodity),
+            source_line=elided_posting.source_line,
+            inferred=True,
+        )
+        for commodity, net in sorted(commodity_sums.items())
+    ]
+
+    result = list(txn.postings)
+    result[elided_idx : elided_idx + 1] = synthetic
+    return result
+
+
+def _parse_string_impl(
+    text: str,
+    default_year: int,
+    errors_out: list[ParseError] | None,
+) -> Journal:
+    """Shared body for parse_string and parse_string_lenient.
+
+    When errors_out is None, raises ParseError on the first malformed line.
+    When errors_out is a list, appends errors and continues parsing; malformed
+    transactions are discarded and parsing resumes at the next boundary.
+    """
     transactions: list[Transaction] = []
     prices: list[PriceDirective] = []
     declared_accounts: list[str] = []
@@ -609,6 +655,7 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
     current_txn: Transaction | None = None
     in_block_comment = False
     in_subdirective = False  # True while consuming indented subdirective lines
+    skip_until_blank = False  # lenient mode: True while skipping a malformed transaction
 
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip()
@@ -635,6 +682,22 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             if line.strip() == "end comment":
                 in_block_comment = False
             continue
+
+        # --- Lenient mode: skip remainder of a malformed transaction ---
+        #
+        # When errors_out is not None and a ParseError occurs mid-transaction,
+        # skip_until_blank is set True and current_txn is cleared. Subsequent
+        # lines are discarded until a blank line or a new transaction header is
+        # encountered, at which point normal parsing resumes.
+        if skip_until_blank:
+            if not line.strip():
+                skip_until_blank = False
+                in_subdirective = False
+                continue
+            if not re.match(r"^(?:\d{4}[-/.])?(?:\d{1,2})[-/.](?:\d{1,2})(?=[\s*!(]|$)", line):
+                continue
+            skip_until_blank = False
+            # Fall through: treat this line as a new transaction header.
 
         # --- Blank line: end the current block ---
         if not line.strip():
@@ -680,7 +743,14 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
                 # No blank line between transactions — flush previous block
                 transactions.append(current_txn)
             in_subdirective = False
-            current_txn = _parse_txn_header(line, lineno, default_year)
+            try:
+                current_txn = _parse_txn_header(line, lineno, default_year)
+            except ParseError as _err:
+                if errors_out is None:
+                    raise
+                errors_out.append(_err)
+                current_txn = None
+                skip_until_blank = True
             continue
 
         # --- Block comment start (`comment` directive) ---
@@ -823,11 +893,15 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             rest = line[len("decimal-mark"):].strip()
             dm = _strip_directive_comment(rest)
             if dm not in (".", ","):
-                raise ParseError(
+                _err = ParseError(
                     f"decimal-mark must be '.' or ',',"
                     f" got {dm!r}",
                     lineno,
                 )
+                if errors_out is None:
+                    raise _err
+                errors_out.append(_err)
+                continue
             decimal_mark = dm
             continue
 
@@ -848,11 +922,21 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
         if not line[0:1].isspace() and line.startswith("P "):
             m_p = _P_DIRECTIVE.match(line)
             if not m_p:
-                raise ParseError(f"invalid P directive: {line!r}", lineno)
+                _err = ParseError(f"invalid P directive: {line!r}", lineno)
+                if errors_out is None:
+                    raise _err
+                errors_out.append(_err)
+                continue
             date_str, commodity1, amount_raw = m_p.groups()
             amount_clean = _strip_directive_comment(amount_raw)
-            p_date = _parse_simple_date(date_str, lineno, default_year)
-            p_price = _parse_amount(amount_clean, lineno, decimal_mark)
+            try:
+                p_date = _parse_simple_date(date_str, lineno, default_year)
+                p_price = _parse_amount(amount_clean, lineno, decimal_mark)
+            except ParseError as _err:
+                if errors_out is None:
+                    raise
+                errors_out.append(_err)
+                continue
             prices.append(PriceDirective(date=p_date, commodity=commodity1, price=p_price))
             continue
 
@@ -874,7 +958,13 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
         if not line[0:1].isspace() and _ALIAS_DIRECTIVE.match(line):
             m_alias = _ALIAS_DIRECTIVE.match(line)
             body = _strip_directive_comment(m_alias.group(1))
-            old, new, is_regex = _parse_alias_body(body, lineno)
+            try:
+                old, new, is_regex = _parse_alias_body(body, lineno)
+            except ParseError as _err:
+                if errors_out is None:
+                    raise
+                errors_out.append(_err)
+                continue
             aliases.append((old, new, is_regex))
             continue
 
@@ -909,9 +999,22 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
         # Non-indented lines outside a block are silently skipped (directives,
         # stray text, etc.).
         if current_txn is None and (line.startswith("  ") or line.startswith("\t")):
-            raise ParseError("posting found outside a transaction block", lineno)
+            _err = ParseError("posting found outside a transaction block", lineno)
+            if errors_out is None:
+                raise _err
+            errors_out.append(_err)
+            skip_until_blank = True
+            continue
         if current_txn is not None:
-            posting = _parse_posting(stripped, lineno, decimal_mark)
+            try:
+                posting = _parse_posting(stripped, lineno, decimal_mark)
+            except ParseError as _err:
+                if errors_out is None:
+                    raise
+                errors_out.append(_err)
+                current_txn = None
+                skip_until_blank = True
+                continue
             if aliases:
                 posting = Posting(
                     account=_apply_aliases(posting.account, aliases),
@@ -922,9 +1025,15 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
             if posting.amount is None:
                 elided = [p for p in current_txn.postings if p.amount is None]
                 if elided:
-                    raise ParseError(
+                    _err = ParseError(
                         "a transaction block may have at most one elided amount", lineno
                     )
+                    if errors_out is None:
+                        raise _err
+                    errors_out.append(_err)
+                    current_txn = None
+                    skip_until_blank = True
+                    continue
             current_txn.postings.append(posting)
             continue
 
@@ -942,5 +1051,51 @@ def parse_string(text: str, default_year: int | None = None) -> Journal:
         declared_payees=declared_payees,
         declared_tags=declared_tags,
     )
+
+
+def parse_string(text: str, default_year: int | None = None) -> Journal:
+    """Parse a journal from a string and return a Journal object.
+
+    Accepted date formats: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD, and year-omitted
+    forms such as M/DD or MM-DD. Leading zeros on month and day are optional.
+    When the year is omitted, default_year is used (defaults to the current
+    calendar year when None).
+
+    Raises:
+        ParseError: if the input is not valid hledger journal syntax.
+    """
+    if default_year is None:
+        default_year = datetime.date.today().year
+    return _parse_string_impl(text, default_year, errors_out=None)
+
+
+def parse_string_lenient(
+    text: str,
+    default_year: int | None = None,
+) -> tuple[Journal, list[ParseError]]:
+    """Parse a journal leniently, collecting errors instead of raising.
+
+    Returns a (Journal, list[ParseError]) tuple. The Journal contains all
+    transactions that were successfully parsed; malformed transactions are
+    discarded. The error list is empty when the input is valid.
+
+    This function never raises. It is intended for editor integrations that
+    call it on every text-changed event to provide real-time diagnostics while
+    the file is being edited.
+
+    Args:
+        text: Raw journal text.
+        default_year: Year to use for year-omitted dates. Defaults to the
+                      current calendar year when None.
+
+    Returns:
+        A (journal, errors) tuple where journal contains all valid transactions
+        and errors is a (possibly empty) list of ParseError.
+    """
+    if default_year is None:
+        default_year = datetime.date.today().year
+    errors: list[ParseError] = []
+    journal = _parse_string_impl(text, default_year, errors_out=errors)
+    return journal, errors
 
 

@@ -61,17 +61,6 @@ def _abbreviate_account(account: str, max_width: int = 20) -> str:
     return ":".join(parts)
 
 
-# Returns the first commodity symbol found in the journal's postings.
-# Used to annotate balance output, which returns bare Decimal values.
-# For multi-commodity journals this returns only the first commodity found;
-# mixed-commodity balance display is not yet supported.
-def _primary_commodity(journal) -> str:
-    for txn in journal.transactions:
-        for posting in txn.postings:
-            if posting.amount is not None:
-                return posting.amount.commodity
-    return ""
-
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -263,28 +252,59 @@ def main(argv: list[str] | None = None) -> int:
         with contextlib.redirect_stdout(outfile) if outfile else contextlib.nullcontext():
             if args.command == "balance":
                 result = reports.balance(journal)
-                commodity = _primary_commodity(journal)
-                formatted = {
-                    acct: _fmt_amount(bal, commodity)
-                    for acct, bal in result.items()
-                }
-                total = sum(result.values())
-                total_str = "0" if total == 0 else _fmt_amount(total, commodity)
-                col_w = max(
-                    20,
-                    *(len(s) for s in formatted.values()),
-                    len(total_str),
-                )
-                for acct, amt_str in sorted(formatted.items()):
-                    amt = f"{amt_str:>{col_w}}"
-                    if result[acct] < 0:
-                        amt = f"{_ANSI_RED}{amt}{_ANSI_RESET}"
-                    print(f"{amt}  {acct}")
-                print("-" * col_w)
-                tot = f"{total_str:>{col_w}}"
-                if total < 0:
-                    tot = f"{_ANSI_RED}{tot}{_ANSI_RESET}"
-                print(tot)
+                # result: dict[str, dict[str, Decimal]] — account → commodity → net
+
+                # Flatten to (account, commodity, qty) rows; sorted alphabetically.
+                lines: list[tuple[str, str, Decimal]] = [
+                    (acct, comm, qty)
+                    for acct in sorted(result)
+                    for comm, qty in sorted(result[acct].items())
+                ]
+
+                if not lines:
+                    pass
+                else:
+                    # Per-commodity grand totals.
+                    commodity_totals: dict[str, Decimal] = {}
+                    for _, comm, qty in lines:
+                        commodity_totals[comm] = commodity_totals.get(comm, Decimal(0)) + qty
+
+                    formatted_amts = [_fmt_amount(qty, comm) for _, comm, qty in lines]
+                    total_strs = [
+                        ("0" if qty == 0 else _fmt_amount(qty, comm))
+                        for comm, qty in sorted(commodity_totals.items())
+                    ]
+                    col_w = max(
+                        20,
+                        *(len(s) for s in formatted_amts),
+                        *(len(s) for s in total_strs),
+                    )
+
+                    # Determine the last (account, commodity) row index per account
+                    # so the account name is printed only on that row.
+                    acct_last_idx: dict[str, int] = {
+                        acct: i for i, (acct, _, _) in enumerate(lines)
+                    }
+
+                    for i, ((acct, comm, qty), amt_str) in enumerate(
+                        zip(lines, formatted_amts)
+                    ):
+                        padded = f"{amt_str:>{col_w}}"
+                        if qty < 0:
+                            padded = f"{_ANSI_RED}{padded}{_ANSI_RESET}"
+                        if i == acct_last_idx[acct]:
+                            print(f"{padded}  {acct}")
+                        else:
+                            print(padded)
+
+                    print("-" * col_w)
+                    for total_str, (comm, total) in zip(
+                        total_strs, sorted(commodity_totals.items())
+                    ):
+                        tot = f"{total_str:>{col_w}}"
+                        if total < 0:
+                            tot = f"{_ANSI_RED}{tot}{_ANSI_RESET}"
+                        print(tot)
 
             elif args.command == "register":
                 rows = reports.register(journal)

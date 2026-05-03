@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from PyLedger.models import (
-    Amount,
+    BalanceRow,
     Journal,
     Posting,
     Query,
@@ -22,6 +22,7 @@ from PyLedger.models import (
     ReportSectionResult,
     Transaction,
 )
+from PyLedger.parser import resolve_elision
 
 
 @dataclass
@@ -115,29 +116,6 @@ def _posting_matches(
     return True
 
 
-def _infer_elided_posting_amount(txn: Transaction) -> Amount | None:
-    """Return the inferred Amount for the single elided posting in txn.
-
-    Returns None if txn has no elided posting.
-
-    Assumes the transaction passed check_autobalanced — at most one elided
-    posting, and exactly one commodity present when an elided posting exists.
-    The inferred amount is the negative sum of all explicit posting amounts.
-    """
-    given = [p for p in txn.postings if p.amount is not None]
-    elided = [p for p in txn.postings if p.amount is None]
-    if not elided:
-        return None
-    commodity_sums: dict[str, Decimal] = {}
-    for p in given:
-        c = p.amount.commodity  # type: ignore[union-attr]
-        commodity_sums[c] = commodity_sums.get(c, Decimal(0)) + p.amount.quantity  # type: ignore[union-attr]
-    if not commodity_sums:
-        return Amount(Decimal(0), "")
-    commodity = next(iter(commodity_sums))
-    return Amount(-commodity_sums[commodity], commodity)
-
-
 def _aggregate_posting_amounts(
     pairs: list[tuple[str, Decimal]],
 ) -> dict[str, Decimal]:
@@ -146,6 +124,42 @@ def _aggregate_posting_amounts(
     for account, qty in pairs:
         result[account] = result.get(account, Decimal(0)) + qty
     return result
+
+
+def _build_balance_tree(
+    totals: dict[str, dict[str, Decimal]],
+) -> list[BalanceRow]:
+    """Convert a flat account→commodity→net dict into a sorted tree row list.
+
+    Collects all implicit parent accounts (all colon-prefixes of every account
+    name in `totals`), computes aggregate amounts (own postings + all
+    descendants) for each, and returns a list of BalanceRow sorted
+    alphabetically by account name.
+
+    is_subtotal is True for accounts not present in `totals` directly (pure
+    intermediate parents with no direct postings of their own).
+    """
+    all_accounts: set[str] = set(totals.keys())
+    for account in list(totals.keys()):
+        parts = account.split(":")
+        for i in range(1, len(parts)):
+            all_accounts.add(":".join(parts[:i]))
+
+    rows: list[BalanceRow] = []
+    for account in sorted(all_accounts):
+        prefix = account + ":"
+        agg: dict[str, Decimal] = {}
+        for src, amounts in totals.items():
+            if src == account or src.startswith(prefix):
+                for commodity, qty in amounts.items():
+                    agg[commodity] = agg.get(commodity, Decimal(0)) + qty
+        rows.append(BalanceRow(
+            account=account,
+            depth=account.count(":"),
+            amounts=agg,
+            is_subtotal=(account not in totals),
+        ))
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -174,23 +188,27 @@ def accounts(journal: Journal, query: Query | None = None) -> list[str]:
 def balance(
     journal: Journal,
     query: Query | None = None,
-) -> dict[str, Decimal]:
-    """Return a mapping of account name to net balance.
+    tree: bool = False,
+) -> dict[str, dict[str, Decimal]] | list[BalanceRow]:
+    """Return per-commodity net balances for each account.
 
     Args:
         journal: The parsed journal.
         query: Optional filter. When None or Query(), all postings are included.
+        tree: When True, returns list[BalanceRow] with implicit parent accounts
+              and aggregate subtotals. When False (default), returns a flat
+              dict[str, dict[str, Decimal]] mapping account name to a
+              commodity→net dict.
 
     Returns:
-        Dict mapping each account name to its net balance as a Decimal.
-        Only accounts that appear in at least one matching posting are included.
+        When tree=False: dict mapping account name to {commodity: net_balance}.
+        When tree=True: list[BalanceRow] sorted alphabetically, including
+        implicit parent accounts with is_subtotal=True.
 
-    Note on depth: unlike accounts() and register(), depth here causes account
-    names to be *truncated* (rolled up) rather than excluded — matching hledger's
-    --depth behaviour. expenses:food:groceries at depth=2 contributes to
-    expenses:food, not to the full name.
+    Note on depth: depth in the query causes account names to be *truncated*
+    (rolled up) rather than excluded — matching hledger's --depth behaviour.
+    expenses:food:groceries at depth=2 contributes to expenses:food.
     """
-    # depth is handled as truncation here, not as exclusion.
     # Strip depth from the query before _posting_matches so deep postings are
     # not excluded, then apply truncation to the account name manually.
     matching_query = (
@@ -198,20 +216,25 @@ def balance(
         if query is not None and query.depth is not None
         else query
     )
-    pairs: list[tuple[str, Decimal]] = []
+    totals: dict[str, dict[str, Decimal]] = {}
     for txn in journal.transactions:
-        inferred = _infer_elided_posting_amount(txn)
-        for posting in txn.postings:
+        for posting in resolve_elision(txn):
             if not _posting_matches(posting, txn, matching_query):
                 continue
-            amount = posting.amount if posting.amount is not None else inferred
-            if amount is None:
+            if posting.amount is None:
                 continue
             account = posting.account
             if query is not None and query.depth is not None:
                 account = ":".join(account.split(":")[:query.depth])
-            pairs.append((account, amount.quantity))
-    return _aggregate_posting_amounts(pairs)
+            commodity = posting.amount.commodity
+            if account not in totals:
+                totals[account] = {}
+            totals[account][commodity] = (
+                totals[account].get(commodity, Decimal(0)) + posting.amount.quantity
+            )
+    if tree:
+        return _build_balance_tree(totals)
+    return totals
 
 
 def register(
@@ -231,19 +254,17 @@ def register(
     rows: list[RegisterRow] = []
     running: Decimal = Decimal(0)
     for txn in journal.transactions:
-        inferred = _infer_elided_posting_amount(txn)
-        for posting in txn.postings:
+        for posting in resolve_elision(txn):
             if not _posting_matches(posting, txn, query):
                 continue
-            amount = posting.amount if posting.amount is not None else inferred
-            if amount is None:
+            if posting.amount is None:
                 continue
-            running += amount.quantity
+            running += posting.amount.quantity
             rows.append(RegisterRow(
                 date=txn.date,
                 description=txn.description,
                 account=posting.account,
-                amount=amount,
+                amount=posting.amount,
                 running_balance=running,
             ))
     return rows
@@ -358,9 +379,7 @@ def balance_from_spec(
                 if query.payee is not None and not _matches_pattern(query.payee, txn.description):
                     continue
 
-            inferred = _infer_elided_posting_amount(txn)
-
-            for posting in txn.postings:
+            for posting in resolve_elision(txn):
                 # Section account patterns: OR logic — posting must match at least one.
                 if not any(_matches_pattern(pat, posting.account) for pat in section.accounts):
                     continue
@@ -376,9 +395,7 @@ def balance_from_spec(
                     if query.not_account is not None and _matches_pattern(query.not_account, posting.account):
                         continue
 
-                # Resolve amount (infer if elided).
-                amount = posting.amount if posting.amount is not None else inferred
-                if amount is None:
+                if posting.amount is None:
                     continue
 
                 # Depth: section.depth overrides query.depth.
@@ -389,7 +406,7 @@ def balance_from_spec(
                 if depth is not None:
                     account = ":".join(account.split(":")[:depth])
 
-                pairs.append((account, amount.quantity))
+                pairs.append((account, posting.amount.quantity))
 
         rows = _aggregate_posting_amounts(pairs)
 
